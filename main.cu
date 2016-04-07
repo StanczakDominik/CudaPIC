@@ -1,8 +1,10 @@
 const int N_particles_1_axis = 16; //should be maybe connected to threadsPerBlock somehow
-const int N_particles = N_particles_1_axis*N_particles_1_axis*N_particles_1_axis; //does this compile with const? //2^4^3 = 2^7 = 128 
+const int N_particles = N_particles_1_axis*N_particles_1_axis*N_particles_1_axis; //does this compile with const? //2^4^3 = 2^7 = 128
 const float L = 1.;
 const int N_grid_1_axis = 8;
-const int N_gird = N_grid_1_axis*N_grid_1_axis*N_grid_1_axis;
+const int N_grid = N_grid_1_axis*N_grid_1_axis*N_grid_1_axis;
+const int NT = 100;
+const float dt = 0.001;
 // const float Ly = 1.;
 // const float Lz = 1.;
 
@@ -17,10 +19,10 @@ L = 1
 */
 
 dim3 particleThreads(16,3);
-dim3 particleBlocks(N_particles/threadsPerBlock.x);
+dim3 particleBlocks(N_particles/particleThreads.x);
 
 dim3 gridThreads(16,16);
-dim3 gridBlocks(N_grid/gridThreads.x, N_grid/gridThreads.y, N_grid/grid_threads.z);
+dim3 gridBlocks(N_grid/gridThreads.x, N_grid/gridThreads.y, N_grid/gridThreads.z);
 
 __global__ void InitParticleArrays(float* R, float* V, int N_particles, int N_particles_1_axis, float L_axis)
 {
@@ -47,12 +49,12 @@ __global__ void InitGridArrays(float* ChargeDensity, float* Ex, float* Ey, float
     }
 }
 
-    
+
 __global__ void InitialVelocityStep(float* V, float* E, float dt, int N_particles)
 {
-    
+
     int i = blockDim.x * blockIdx.x + threadIdx.x;
-    int j = threadIx.y;
+    int j = threadIdx.y;
     if(i<N_particles)
     {
         V[i][j] -= 0.5*dt*E[i][j]; // TODO: times q/m eventually?
@@ -67,32 +69,30 @@ __device__ float InterpolateElectricField(int j, float x, float y, float z)//, f
     }
     else if (j==1)
     {
-        return -2*(y-0.5);        
+        return -2*(y-0.5);
     }
-    else (j==2)
-    {
-        return -2*(z-0.5);
-    }
+    return -2*(z-0.5);
+
 }
 __global__ void ParticleKernel(float* R, float* V, float* Ex, float* Ey, float*Ez, float dt, int N_particles, float L) //eventually: grid position array (and THAT can be 3d!!!)!, grid charge array, grid field arrays
 {
    int i = blockDim.x * blockIdx.x + threadIdx.x;
-   int j = threadIx.y;
+   int j = threadIdx.y;
    if(i<N_particles)
    {
        //particle kernel: update positions, interpolate fields, update velocities, deposit charges
         R[i][j] += V[i][j]*dt;
         R[i][j] %= L; //can you do that?
-        V[i][j] += InterpolateElectricField(int j, R[i][0], R[i][1], R[i][2]);//, Ex, Ey, Ez);
+        V[i][j] += dt*InterpolateElectricField(int j, R[i][0], R[i][1], R[i][2]);//, Ex, Ey, Ez);
         //todo: charge deposition
         //I[i][j] = int(R[i][j] / dj);
-        //I goes on out and is returned for the grid thing    
-   }        
+        //I goes on out and is returned for the grid thing
+   }
 }
 //charge deposition has to happen somewhere here, maybe via... histogram? scan? gotta figure something out.
-__global__ void GridKernel(float *GridR, float* GridChargeDensity, float* Ex, float* Ey, float* Ez, int N_grid)
+__global__ void GridKernel(float* GridChargeDensity, float* Ex, float* Ey, float* Ez, int N_grid)
 {
-    
+
 }
 
 int main(void)
@@ -101,7 +101,7 @@ int main(void)
 
 
     //allocate space for particles
-    
+
     float* d_R;
     float* d_V;
     float* d_CD;
@@ -119,19 +119,19 @@ int main(void)
     cudaMalloc(&d_Ez, grid_array_size);
     cudaMalloc(&d_CD, grid_array_size);
 //     cudaMalloc(&d_I, particle_array_size); //indices on grid
-    
-    InitParticleArrays<<particleBlocks, particleThreads>>(d_R, d_V, N_particles, N_particles_1_axis, L);
-    InitGridArrays<<gridBlock, gridThreads>>(d_CD, d_Ex, d_Ey, d_Ez);
-    
-    for(int i =0; i<NT; i++i)
+
+    InitParticleArrays<<<particleBlocks, particleThreads>>>(d_R, d_V, N_particles, N_particles_1_axis, L);
+    InitGridArrays<<<gridBlocks, gridThreads>>>(d_CD, d_Ex, d_Ey, d_Ez, N_grid);
+
+    for(int i =0; i<NT; i++)
     {
-        ParticleKernel<<particleBlocks, particleThreads>>();
-        GridKernel<<gridBlocks, gridThreads>>();
+        ParticleKernel<<<particleBlocks, particleThreads>>>(d_R, d_V, d_Ex, d_Ey, d_Ez, dt, N_particles, L);
+        GridKernel<<<gridBlocks, gridThreads>>>(d_CD, d_Ex, d_Ey, d_Ez, N_grid);
     }
-    
+
 
     /*
-    kernel1: set particle positions to uniform spatial distribution, zero 
+    kernel1: set particle positions to uniform spatial distribution, zero
     problem1: given int N particles, how to set their x, y, z
     1d: easy, given Nx particles, Nx/Lx * idX
     2d: sorta easy because [(Nx/Lx) * idX, (Ny/Ly) * idY]
