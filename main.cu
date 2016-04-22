@@ -1,15 +1,22 @@
-const int N_particles_1_axis = 16; //should be maybe connected to threadsPerBlock somehow
-const int N_particles = N_particles_1_axis*N_particles_1_axis*N_particles_1_axis; //does this compile with const? //2^4^3 = 2^7 = 128
-const float L = 1.;
-const int N_grid_1_axis = 8;
-const int N_grid = N_grid_1_axis*N_grid_1_axis*N_grid_1_axis;
-const int NT = 100;
-const float dt = 0.001;
-// const float Ly = 1.;
-// const float Lz = 1.;
+#include <stdio.h>
+#include <curand.h>
+#include <curand_kernel.h>
+
+
+#define N_particles_1_axis 128 //should be maybe connected to threadsPerBlock somehow
+#define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis) //does this compile with const? //2^4^3 = 2^7 = 128
+#define L 1.f
+#
+#define dt 0.01f
+#define NT 500
+#define N_grid 16
+#define N_grid_all (N_grid *N_grid * N_grid)
+#define dx (L/float(N_grid))
+#define dy dx
+#define dz dx
 
 size_t particle_array_size = N_particles*sizeof(float);
-size_t grid_array_size = N_grid*sizeof(float);
+// size_t grid_array_size = N_grid*sizeof(float);
 
 /*
 Assumptions:
@@ -18,127 +25,237 @@ m=1
 L = 1
 */
 
-dim3 particleThreads(16,3);
-dim3 particleBlocks(N_particles/particleThreads.x);
 
-dim3 gridThreads(16,16);
+dim3 particleThreads(64);
+dim3 particleBlocks(N_particles/particleThreads.x);
+dim3 gridThreads(16,16,16);
 dim3 gridBlocks(N_grid/gridThreads.x, N_grid/gridThreads.y, N_grid/gridThreads.z);
 
-__global__ void InitParticleArrays(float* R, float* V, int N_particles, int N_particles_1_axis, float L_axis)
+// __global__ void solve_poisson()
+// {
+//     int i = blockIdx.x*blockDim.x + threadIdx.x;
+//     int j = blockIdx.y*blockDim.y + threadIdx.y;
+//     int k = blockIdx.z*blockDim.z + threadIdx.z;
+//
+//     int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
+//     if(i<N_grid && j<N_grid && k<N_grid)
+//     {
+//         float k2 = kv[i]*kv[i] + kv[j]*kv[j] + kv[k]*kv[k];
+//         if (i==0 && j==0 && k ==0)
+//             k2 = 1.0f;
+//         }
+//     }
+// }
+
+
+__device__ int position_to_grid_index(float X)
 {
-    int i = blockDim.x * blockIdx.x + threadIdx.x;
-    int j = threadIdx.y;
-    if (i<N_particles)
+    return int(X/dx);
+}
+
+__device__ float position_in_cell(float x)
+{
+    int grid_index = position_to_grid_index(x);
+    return x - grid_index*dx;
+}
+
+
+__global__ void scatter_charge(float* X, float* Y, float* Z, float* d_charge, float q)
+{
+    int n = blockIdx.x*blockDim.x + threadIdx.x;
+
+    int i = position_to_grid_index(X[n]);
+    int j = position_to_grid_index(Y[n]);
+    int k = position_to_grid_index(Z[n]);
+
+    float Xr = position_in_cell(X[n])/dx;
+    float Xl = 1 - Xr;
+    float Yr = position_in_cell(Y[n])/dy;
+    float Yl = 1 - Yr;
+    float Zr = position_in_cell(Z[n])/dz;
+    float Zl = 1 - Zr;
+
+    //this part is literally hitler - not just unreadable but slow af
+    //TODO: redo this using a reduce, maybe?
+    atomicAdd(&(d_charge[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]), q*Xl*Yl*Zl);
+    atomicAdd(&(d_charge[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]), q*Xr*Yl*Zl);
+    atomicAdd(&(d_charge[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]), q*Xl*Yr*Zl);
+    atomicAdd(&(d_charge[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]), q*Xl*Yl*Zr);
+    atomicAdd(&(d_charge[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]), q*Xr*Yr*Zl);
+    atomicAdd(&(d_charge[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]), q*Xr*Yl*Zr);
+    atomicAdd(&(d_charge[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]), q*Xl*Yr*Zr);
+    atomicAdd(&(d_charge[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]), q*Xr*Yr*Zr);
+}
+
+
+__device__ float gather_grid_to_particle(float x, float y, float z, float *grid)
+{
+    int i = position_to_grid_index(x);
+    int j = position_to_grid_index(y);
+    int k = position_to_grid_index(z);
+
+    float Xr = position_in_cell(x)/dx;
+    float Xl = 1 - Xr;
+    float Yr = position_in_cell(y)/dy;
+    float Yl = 1 - Yr;
+    float Zr = position_in_cell(z)/dz;
+    float Zl = 1 - Zr;
+
+    float result = 0.0f;
+    //this part is also hitler but not as much
+    result += grid[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]*Xl*Yl*Zl;
+    result += grid[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]*Xr*Yl*Zl;
+    result += grid[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]*Xl*Yr*Zl;
+    result += grid[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]*Xl*Yl*Zr;
+    result += grid[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]*Xr*Yr*Zl;
+    result += grid[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]*Xr*Yl*Zr;
+    result += grid[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]*Xl*Yr*Zr;
+    result += grid[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]*Xr*Yr*Zr;
+    return result;
+
+}
+
+
+
+__global__ void InitParticleArrays(float* X, float *Y, float* Z, float *Vx, float *Vy, float *Vz)
+{
+    int n = blockDim.x * blockIdx.x + threadIdx.x;
+    if (n<N_particles)
     {
-        R[i][j] = L_axis/float(N_particles_1_axis) * i;
-        V[i][j] = 0.;
+        X[n] = L/float(N_particles_1_axis)*(n%N_particles_1_axis);
+        Y[n] = L/float(N_particles_1_axis)*(n/N_particles_1_axis)/float(N_particles_1_axis);
+        Z[n] = L/float(N_particles_1_axis)*(n/N_particles_1_axis/N_particles_1_axis);
+        Vx[n] = 0.1f;
+        Vy[n] = 0.2f;
+        Vz[n] = 0.3f;
     }
 }
 
-__global__ void InitGridArrays(float* ChargeDensity, float* Ex, float* Ey, float* Ez, int N_grid)
+__global__ void InitialVelocityStep(float* X, float* Y, float* Z, float* Vx, float* Vy, float* Vz)
 {
-    int i = blockDim.x * blockIdx.x + threadIdx.x;
-    int j = blockDim.y * blockIdx.y + threadIdx.y;
-    int k = threadIdx.z * blockIdx.z + threadIdx.z;
-    if (i<N_grid and j < N_grid and k < N_grid)
+    int n = blockDim.x * blockIdx.x + threadIdx.x;
     {
-        ChargeDensity[i][j][k] = 0.;
-        Ex[i][j][k] = 0.;
-        Ey[i][j][k] = 0.;
-        Ez[i][j][k] = 0.;
+        Vx[n] -= 0.5f*dt*(-2*(X[n]-0.5f));
+        Vy[n] -= 0.5f*dt*(-2*(Y[n]-0.5f));
+        Vz[n] -= 0.5f*dt*(-2*(Z[n]-0.5f));
     }
 }
 
 
-__global__ void InitialVelocityStep(float* V, float* E, float dt, int N_particles)
+__global__ void ParticleKernel(float *X, float *Y, float *Z, float *Vx, float *Vy, float *Vz)//, float *d_Ex, float *d_Ey, float *d_Ez, float qm)
 {
-
-    int i = blockDim.x * blockIdx.x + threadIdx.x;
-    int j = threadIdx.y;
-    if(i<N_particles)
-    {
-        V[i][j] -= 0.5*dt*E[i][j]; // TODO: times q/m eventually?
-    }
-}
-///todo: can you make a __device__ function in cuda that actually returns numbers? can that access indices etc? I could replace E[i][j] with a function returning -2(R-L/2) for now
-__device__ float InterpolateElectricField(int j, float x, float y, float z)//, float* E)
-{
-    if (j==0)
-    {
-        return -2*(x-0.5);
-    }
-    else if (j==1)
-    {
-        return -2*(y-0.5);
-    }
-    return -2*(z-0.5);
-
-}
-__global__ void ParticleKernel(float* R, float* V, float* Ex, float* Ey, float*Ez, float dt, int N_particles, float L) //eventually: grid position array (and THAT can be 3d!!!)!, grid charge array, grid field arrays
-{
-   int i = blockDim.x * blockIdx.x + threadIdx.x;
-   int j = threadIdx.y;
-   if(i<N_particles)
+   int n = blockDim.x * blockIdx.x + threadIdx.x;
+   if(n<N_particles)
    {
-       //particle kernel: update positions, interpolate fields, update velocities, deposit charges
-        R[i][j] += V[i][j]*dt;
-        R[i][j] %= L; //can you do that?
-        V[i][j] += dt*InterpolateElectricField(int j, R[i][0], R[i][1], R[i][2]);//, Ex, Ey, Ez);
-        //todo: charge deposition
-        //I[i][j] = int(R[i][j] / dj);
-        //I goes on out and is returned for the grid thing
-   }
-}
-//charge deposition has to happen somewhere here, maybe via... histogram? scan? gotta figure something out.
-__global__ void GridKernel(float* GridChargeDensity, float* Ex, float* Ey, float* Ez, int N_grid)
-{
+       //push positions, enforce periodic boundary conditions
+       X[n] = fmod((X[n] + Vx[n]*dt),L);
+       Y[n] = fmod((Y[n] + Vy[n]*dt),L);
+       Z[n] = fmod((Z[n] + Vz[n]*dt),L);
+       //gather electric field
+    //    float Ex = gather_grid_to_particle(X[n], Y[n], Z[n], d_Ex);
+    //    float Ey = gather_grid_to_particle(X[n], Y[n], Z[n], d_Ey);
+    //    float Ez = gather_grid_to_particle(X[n], Y[n], Z[n], d_Ez);
 
+       //use electric field to accelerate particles
+       Vx[n] += dt*(-2*(X[n]-0.5f));
+       Vy[n] += dt*(-2*(Y[n]-0.5f));
+       Vz[n] += dt*(-2*(Z[n]-0.5f));
+   }
 }
 
 int main(void)
 {
     //TODO: routine checks for cuda status
 
+    float* d_X;
+    float* d_Y;
+    float* d_Z;
+    float* d_Vx;
+    float* d_Vy;
+    float* d_Vz;
 
-    //allocate space for particles
+    float *X = new float[N_particles];
+    float *Y = new float[N_particles];
+    float *Z = new float[N_particles];
+    float *Vx = new float[N_particles];
+    float *Vy = new float[N_particles];
+    float *Vz = new float[N_particles];
 
-    float* d_R;
-    float* d_V;
-    float* d_CD;
-//     float* d_GridX;     //czy aby one na pewno są konieczne do alokowania? ani się to nie zmienia... tak naprawdę mając i*dx...
-//     float* d_GridY;
-//     float* d_GridZ;
-    float* d_Ex;
-    float* d_Ey;
-    float* d_Ez;
-//     int* d_I;
-    cudaMalloc(&d_R, particle_array_size);
-    cudaMalloc(&d_V, particle_array_size);
-    cudaMalloc(&d_Ex, grid_array_size);
-    cudaMalloc(&d_Ey, grid_array_size);
-    cudaMalloc(&d_Ez, grid_array_size);
-    cudaMalloc(&d_CD, grid_array_size);
-//     cudaMalloc(&d_I, particle_array_size); //indices on grid
 
-    InitParticleArrays<<<particleBlocks, particleThreads>>>(d_R, d_V, N_particles, N_particles_1_axis, L);
-    InitGridArrays<<<gridBlocks, gridThreads>>>(d_CD, d_Ex, d_Ey, d_Ez, N_grid);
+    cudaMalloc((void**)&d_X, sizeof(float)*N_particles);
+    cudaMalloc((void**)&d_Y, sizeof(float)*N_particles);
+    cudaMalloc((void**)&d_Z, sizeof(float)*N_particles);
+    cudaMalloc((void**)&d_Vx, sizeof(float)*N_particles);
+    cudaMalloc((void**)&d_Vy, sizeof(float)*N_particles);
+    cudaMalloc((void**)&d_Vz, sizeof(float)*N_particles);
+    InitParticleArrays<<<particleBlocks, particleThreads>>>(d_X, d_Y, d_Z, d_Vx, d_Vy, d_Vz);
+    InitialVelocityStep<<<particleBlocks, particleThreads>>>(d_X, d_Y, d_Z, d_Vx, d_Vy, d_Vz);
 
-    for(int i =0; i<NT; i++)
+    float *charge = new float[N_grid_all];
+    float *d_charge = new float[N_grid_all];
+
+    cudaMalloc((void**)&d_charge, sizeof(float)*N_grid_all);
+    cudaMemset(&d_charge, sizeof(float)*N_grid_all, 0);
+    scatter_charge<<<particleBlocks, particleThreads>>>(d_X, d_Y, d_Z, d_charge, 1);
+
+
+    cudaMemcpy(charge, d_charge, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost);
+    FILE *density_data = fopen("density_data.dat", "w");
+    for (int n = 0; n < N_grid_all; n++)
     {
-        ParticleKernel<<<particleBlocks, particleThreads>>>(d_R, d_V, d_Ex, d_Ey, d_Ez, dt, N_particles, L);
-        GridKernel<<<gridBlocks, gridThreads>>>(d_CD, d_Ex, d_Ey, d_Ez, N_grid);
+        fprintf(density_data, "%f\n", charge[n]);
     }
 
 
-    /*
-    kernel1: set particle positions to uniform spatial distribution, zero
-    problem1: given int N particles, how to set their x, y, z
-    1d: easy, given Nx particles, Nx/Lx * idX
-    2d: sorta easy because [(Nx/Lx) * idX, (Ny/Ly) * idY]
-    how do we get Nx, Ny?
-    In 2d we would have N particles, that's sqrt(N) particles for each row
-    problem: sqrt not necessary a float
-    turn it around
-    */
+    cudaMemcpy(X, d_X, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
+    cudaMemcpy(Y, d_Y, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
+    cudaMemcpy(Z, d_Z, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
 
+    FILE *initial_position_data = fopen("initial.dat", "w");
+    for (int p =0; p<N_particles; p++)
+    {
+        fprintf(initial_position_data, "%f %f %f\n", X[p], Y[p], Z[p]);
+    }
+
+    FILE *trajectory_data = fopen("trajectory.dat", "w");
+    for(int i =0; i<NT; i++)
+    {
+        ParticleKernel<<<particleBlocks, particleThreads>>>(d_X, d_Y, d_Z, d_Vx, d_Vy, d_Vz);
+        cudaMemcpy(X, d_X, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
+        cudaMemcpy(Y, d_Y, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
+        cudaMemcpy(Z, d_Z, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
+        for (int p =0; p<10; p++)
+        {
+            fprintf(trajectory_data,"%f %f %f ", X[p], Y[p], Z[p]);
+        }
+        fprintf(trajectory_data, "\n");
+    }
+
+
+
+    cudaMemcpy(X, d_X, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
+    cudaMemcpy(Y, d_Y, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
+    cudaMemcpy(Z, d_Z, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
+    FILE *final_position_data = fopen("final.dat", "w");
+    for (int p =0; p<N_particles; p++)
+    {
+        fprintf(final_position_data, "%f %f %f\n", X[p], Y[p], Z[p]);
+    }
+
+    cudaMemset(&d_charge, sizeof(float)*N_grid_all, 0);
+    scatter_charge<<<particleBlocks, particleThreads>>>(d_X, d_Y, d_Z, d_charge, 1);
+    cudaMemcpy(charge, d_charge, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost);
+    FILE *final_density_data = fopen("final_density_data.dat", "w");
+    for (int n = 0; n < N_grid_all; n++)
+    {
+        fprintf(final_density_data, "%f\n", charge[n]);
+    }
+
+    cudaFree(d_X);
+    cudaFree(d_Y);
+    cudaFree(d_Z);
+    cudaFree(d_Vx);
+    cudaFree(d_Vy);
+    cudaFree(d_Vz);
+    cudaFree(d_charge);
 }
