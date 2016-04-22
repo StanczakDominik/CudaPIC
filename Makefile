@@ -1,2 +1,2 @@
 main: main.cu
-	nvcc -o main main.cu -arch=sm_20
+	nvcc -o main.out main.cu -arch=sm_20
