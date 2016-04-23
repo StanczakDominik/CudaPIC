@@ -32,9 +32,54 @@ dim3 particleBlocks(N_particles/particleThreads.x);
 dim3 gridThreads(16,16,16);
 dim3 gridBlocks(N_grid/gridThreads.x, N_grid/gridThreads.y, N_grid/gridThreads.z);
 
-__global__ void solve_poisson(cufftComplex *d_fourier_charge,
-    cufftComplex *d_fourier_Ex, cufftComplex *d_fourier_Ey, cufftComplex *d_fourier_Ez,
-    float *d_kv){
+struct Grid
+{
+    // int N_grid;
+    // int N_grid_all;
+    // float dx;
+
+    float *rho;
+    float *Ex;
+    float *Ey;
+    float *Ez;
+
+    float *d_rho;
+    float *d_Ex;
+    float *d_Ey;
+    float *d_Ez;
+    //fourier transformed versions of grid quantities, for fields solver
+    cufftComplex *d_fourier_rho;
+    cufftComplex *d_fourier_Ex;
+    cufftComplex *d_fourier_Ey;
+    cufftComplex *d_fourier_Ez;
+
+    cufftHandle plan;
+
+    float *kv;
+    float *d_kv; //wave vector for field solver
+};
+
+struct Particle
+{
+    float x;
+    float y;
+    float z;
+    float vx;
+    float vy;
+    float vz;
+};
+
+struct Species
+{
+    float m;
+    float q;
+    long int N;
+
+    Particle *particles;
+    Particle *d_particles;
+};
+
+__global__ void solve_poisson(Grid g){
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
@@ -42,21 +87,21 @@ __global__ void solve_poisson(cufftComplex *d_fourier_charge,
     int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
     if(i<N_grid && j<N_grid && k<N_grid)
     {
-        float k2 = d_kv[i]*d_kv[i] + d_kv[j]*d_kv[j] + d_kv[k]*d_kv[k];
+        float k2 = g.d_kv[i]*g.d_kv[i] + g.d_kv[j]*g.d_kv[j] + g.d_kv[k]*g.d_kv[k];
         if (i==0 && j==0 && k ==0)
         {
             k2 = 1.0f;
         }
 
         //see: birdsall langdon page 19
-        d_fourier_Ex[index].x = -d_kv[i]*d_fourier_charge[index].x/k2/epsilon_zero;
-        d_fourier_Ex[index].y = -d_kv[i]*d_fourier_charge[index].y/k2/epsilon_zero;
+        g.d_fourier_Ex[index].x = -g.d_kv[i]*g.d_fourier_rho[index].x/k2/epsilon_zero;
+        g.d_fourier_Ex[index].y = -g.d_kv[i]*g.d_fourier_rho[index].y/k2/epsilon_zero;
 
-        d_fourier_Ey[index].x = -d_kv[j]*d_fourier_charge[index].x/k2/epsilon_zero;
-        d_fourier_Ey[index].y = -d_kv[j]*d_fourier_charge[index].y/k2/epsilon_zero;
+        g.d_fourier_Ey[index].x = -g.d_kv[j]*g.d_fourier_rho[index].x/k2/epsilon_zero;
+        g.d_fourier_Ey[index].y = -g.d_kv[j]*g.d_fourier_rho[index].y/k2/epsilon_zero;
 
-        d_fourier_Ez[index].x = -d_kv[k]*d_fourier_charge[index].x/k2/epsilon_zero;
-        d_fourier_Ez[index].y = -d_kv[k]*d_fourier_charge[index].y/k2/epsilon_zero;
+        g.d_fourier_Ez[index].x = -g.d_kv[k]*g.d_fourier_rho[index].x/k2/epsilon_zero;
+        g.d_fourier_Ez[index].y = -g.d_kv[k]*g.d_fourier_rho[index].y/k2/epsilon_zero;
     }
 }
 
@@ -72,7 +117,6 @@ __global__ void real2complex(float *input, cufftComplex *output){
         output[index].y = 0.0f;
     }
 }
-
 __global__ void complex2real(cufftComplex *input, float *output){
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
@@ -84,7 +128,8 @@ __global__ void complex2real(cufftComplex *input, float *output){
         output[index] = input[index].x/float(N_grid_all);
     }
 }
-__global__ void scale_down_after_fft(float *x, float *y, float *z){
+
+__global__ void scale_down_after_fft(Grid g){
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
@@ -92,47 +137,55 @@ __global__ void scale_down_after_fft(float *x, float *y, float *z){
 
     if(i<N_grid && j<N_grid && k<N_grid)
     {
-        x[index] /= float(N_grid_all);
-        y[index] /= float(N_grid_all);
-        z[index] /= float(N_grid_all);
+        g.d_Ex[index] /= float(N_grid_all);
+        g.d_Ey[index] /= float(N_grid_all);
+        g.d_Ez[index] /= float(N_grid_all);
     }
 }
 
-__global__ void scatter_charge(float* X, float* Y, float* Z, float* d_charge, float q){
+__device__ int position_to_grid_index(float X){
+    return int(X/dx);
+}
+__device__ float position_in_cell(float x){
+    int grid_index = position_to_grid_index(x);
+    return x - grid_index*dx;
+}
+
+__global__ void scatter_charge(Species s, Grid g){
     int n = blockIdx.x*blockDim.x + threadIdx.x;
 
-    int i = position_to_grid_index(X[n]);
-    int j = position_to_grid_index(Y[n]);
-    int k = position_to_grid_index(Z[n]);
+    int i = position_to_grid_index(s.d_particles[n].x);
+    int j = position_to_grid_index(s.d_particles[n].y);
+    int k = position_to_grid_index(s.d_particles[n].z);
 
-    float Xr = position_in_cell(X[n])/dx;
+    float Xr = position_in_cell(s.d_particles[n].x)/dx;
     float Xl = 1 - Xr;
-    float Yr = position_in_cell(Y[n])/dy;
+    float Yr = position_in_cell(s.d_particles[n].y)/dy;
     float Yl = 1 - Yr;
-    float Zr = position_in_cell(Z[n])/dz;
+    float Zr = position_in_cell(s.d_particles[n].z)/dz;
     float Zl = 1 - Zr;
 
     //this part is literally hitler - not just unreadable but slow af
     //TODO: redo this using a reduce, maybe?
-    atomicAdd(&(d_charge[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]), q*Xl*Yl*Zl);
-    atomicAdd(&(d_charge[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]), q*Xr*Yl*Zl);
-    atomicAdd(&(d_charge[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]), q*Xl*Yr*Zl);
-    atomicAdd(&(d_charge[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]), q*Xl*Yl*Zr);
-    atomicAdd(&(d_charge[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]), q*Xr*Yr*Zl);
-    atomicAdd(&(d_charge[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]), q*Xr*Yl*Zr);
-    atomicAdd(&(d_charge[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]), q*Xl*Yr*Zr);
-    atomicAdd(&(d_charge[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]), q*Xr*Yr*Zr);
+    atomicAdd(&(g.d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]), s.q*Xl*Yl*Zl);
+    atomicAdd(&(g.d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]), s.q*Xr*Yl*Zl);
+    atomicAdd(&(g.d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]), s.q*Xl*Yr*Zl);
+    atomicAdd(&(g.d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]), s.q*Xl*Yl*Zr);
+    atomicAdd(&(g.d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]), s.q*Xr*Yr*Zl);
+    atomicAdd(&(g.d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]), s.q*Xr*Yl*Zr);
+    atomicAdd(&(g.d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]), s.q*Xl*Yr*Zr);
+    atomicAdd(&(g.d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]), s.q*Xr*Yr*Zr);
 }
-__device__ float gather_grid_to_particle(float x, float y, float z, float *grid){
-    int i = position_to_grid_index(x);
-    int j = position_to_grid_index(y);
-    int k = position_to_grid_index(z);
+__device__ float gather_grid_to_particle(Particle *p, float *grid){
+    int i = position_to_grid_index((*p).x);
+    int j = position_to_grid_index((*p).y);
+    int k = position_to_grid_index((*p).z);
 
-    float Xr = position_in_cell(x)/dx;
+    float Xr = position_in_cell((*p).x)/dx;
     float Xl = 1 - Xr;
-    float Yr = position_in_cell(y)/dy;
+    float Yr = position_in_cell((*p).y)/dy;
     float Yl = 1 - Yr;
-    float Zr = position_in_cell(z)/dz;
+    float Zr = position_in_cell((*p).z)/dz;
     float Zl = 1 - Zr;
 
     float interpolated_scalar = 0.0f;
@@ -148,43 +201,59 @@ __device__ float gather_grid_to_particle(float x, float y, float z, float *grid)
     return interpolated_scalar;
 
 }
-__device__ int position_to_grid_index(float X){
-    return int(X/dx);
-}
-__device__ float position_in_cell(float x){
-    int grid_index = position_to_grid_index(x);
-    return x - grid_index*dx;
-}
 
 
-__global__ void InitParticleArrays(float* X, float *Y, float* Z, float *Vx, float *Vy, float *Vz){
+__global__ void InitParticleArrays(Species s){
     int n = blockDim.x * blockIdx.x + threadIdx.x;
     if (n<N_particles)
     {
-        X[n] = L/float(N_particles_1_axis)*(n%N_particles_1_axis);
-        Y[n] = L/float(N_particles_1_axis)*(n/N_particles_1_axis)/float(N_particles_1_axis);
-        Z[n] = L/float(N_particles_1_axis)*(n/N_particles_1_axis/N_particles_1_axis);
-        Vx[n] = 0.1f;
-        Vy[n] = 0.2f;
-        Vz[n] = 0.3f;
+        Particle *p = &(s.particles[n]);
+        (*p).x = L/float(N_particles_1_axis)*(n%N_particles_1_axis);
+        (*p).y = L/float(N_particles_1_axis)*(n/N_particles_1_axis)/float(N_particles_1_axis);
+        (*p).z = L/float(N_particles_1_axis)*(n/N_particles_1_axis/N_particles_1_axis);
+        (*p).vx = 0.0f;
+        (*p).vy = 0.0f;
+        (*p).vz = 0.0f;
     }
 }
-__global__ void InitialVelocityStep(float* X, float* Y, float* Z, float* Vx, float* Vy, float* Vz, float *d_Ex, float *d_Ey, float *d_Ez, float qm){
+__global__ void InitialVelocityStep(Species s, Grid g){
     int n = blockDim.x * blockIdx.x + threadIdx.x;
     {
+        Particle *p = &(s.particles[n]);
         //gather electric field
-        float Ex = gather_grid_to_particle(X[n], Y[n], Z[n], d_Ex);
-        float Ey = gather_grid_to_particle(X[n], Y[n], Z[n], d_Ey);
-        float Ez = gather_grid_to_particle(X[n], Y[n], Z[n], d_Ez);
+        float Ex = gather_grid_to_particle(*p, g.d_Ex);
+        float Ey = gather_grid_to_particle(*p, g.d_Ey);
+        float Ez = gather_grid_to_particle(*p, g.d_Ez);
 
        //use electric field to accelerate particles
-       Vx[n] -= 0.5f*dt*qm*Ex;
-       Vy[n] -= 0.5f*dt*qm*Ey;
-       Vz[n] -= 0.5f*dt*qm*Ez;
+       (*p).vx -= 0.5f*dt*qm*Ex;
+       (*p).vy -= 0.5f*dt*qm*Ey;
+       (*p).vz -= 0.5f*dt*qm*Ez;
     }
 }
 
-void init_field_solver(cufftComplex *d_fourier_Ex, cufftComplex *d_fourier_Ey, cufftComplex *d_fourier_Ez, cufftComplex *d_fourier_charge, float *d_charge, float *d_Ex, float *d_Ey, float *d_Ez, float *d_kv, cufftHandle *plan)
+__global__ void ParticleKernel(Species s, Grid g){
+   int n = blockDim.x * blockIdx.x + threadIdx.x;
+   if(n<N_particles)
+   {
+       Particle *p = &(s.particles[n]);
+       //push positions, enforce periodic boundary conditions
+       (*p).x = fmod(((*p).x + (*p).vx*dt),L);
+       (*p).x = fmod(((*p).y + (*p).vy*dt),L);
+       (*p).x = fmod(((*p).z + (*p).vz*dt),L);
+       //gather electric field
+       float Ex = gather_grid_to_particle(X[n], Y[n], Z[n], g.d_Ex);
+       float Ey = gather_grid_to_particle(X[n], Y[n], Z[n], g.d_Ey);
+       float Ez = gather_grid_to_particle(X[n], Y[n], Z[n], g.d_Ez);
+
+       //use electric field to accelerate particles
+       (*p).vx[n] += dt*qm*Ex;
+       (*p).vy[n] += dt*qm*Ey;
+       (*p).vz[n] += dt*qm*Ez;
+   }
+}
+
+void init_field_solver(Grid g)
 {
 
     float *k = new float[N_grid];
@@ -224,25 +293,7 @@ void field_solver(float *d_charge, float *d_Ex, float *d_Ey, float *d_Ez, float 
     scale_down_after_fft<<<gridBlocks, gridThreads>>>(d_Ex, d_Ey, d_Ez);
 }
 
-__global__ void ParticleKernel(float *X, float *Y, float *Z, float *Vx, float *Vy, float *Vz, float *d_Ex, float *d_Ey, float *d_Ez, float qm){
-   int n = blockDim.x * blockIdx.x + threadIdx.x;
-   if(n<N_particles)
-   {
-       //push positions, enforce periodic boundary conditions
-       X[n] = fmod((X[n] + Vx[n]*dt),L);
-       Y[n] = fmod((Y[n] + Vy[n]*dt),L);
-       Z[n] = fmod((Z[n] + Vz[n]*dt),L);
-       //gather electric field
-       float Ex = gather_grid_to_particle(X[n], Y[n], Z[n], d_Ex);
-       float Ey = gather_grid_to_particle(X[n], Y[n], Z[n], d_Ey);
-       float Ez = gather_grid_to_particle(X[n], Y[n], Z[n], d_Ez);
 
-       //use electric field to accelerate particles
-       Vx[n] += dt*qm*Ex;
-       Vy[n] += dt*qm*Ey;
-       Vz[n] += dt*qm*Ez;
-   }
-}
 
 int main(void){
 
