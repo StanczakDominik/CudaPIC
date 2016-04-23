@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <curand.h>
 #include <curand_kernel.h>
-
+#include <cufft.h>
 
 #define N_particles_1_axis 128 //should be maybe connected to threadsPerBlock somehow
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis) //does this compile with const? //2^4^3 = 2^7 = 128
@@ -32,8 +32,7 @@ dim3 particleBlocks(N_particles/particleThreads.x);
 dim3 gridThreads(16,16,16);
 dim3 gridBlocks(N_grid/gridThreads.x, N_grid/gridThreads.y, N_grid/gridThreads.z);
 
-struct Grid
-{
+struct Grid{
     // int N_grid;
     // int N_grid_all;
     // float dx;
@@ -53,14 +52,14 @@ struct Grid
     cufftComplex *d_fourier_Ey;
     cufftComplex *d_fourier_Ez;
 
-    cufftHandle plan;
+    cufftHandle plan_forward;
+    cufftHandle plan_backward;
 
     float *kv;
     float *d_kv; //wave vector for field solver
 };
 
-struct Particle
-{
+struct Particle{
     float x;
     float y;
     float z;
@@ -69,8 +68,7 @@ struct Particle
     float vz;
 };
 
-struct Species
-{
+struct Species{
     float m;
     float q;
     long int N;
@@ -85,11 +83,9 @@ __global__ void solve_poisson(Grid g){
     int k = blockIdx.z*blockDim.z + threadIdx.z;
 
     int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
-    if(i<N_grid && j<N_grid && k<N_grid)
-    {
+    if(i<N_grid && j<N_grid && k<N_grid){
         float k2 = g.d_kv[i]*g.d_kv[i] + g.d_kv[j]*g.d_kv[j] + g.d_kv[k]*g.d_kv[k];
-        if (i==0 && j==0 && k ==0)
-        {
+        if (i==0 && j==0 && k ==0)    {
             k2 = 1.0f;
         }
 
@@ -111,8 +107,7 @@ __global__ void real2complex(float *input, cufftComplex *output){
     int k = blockIdx.z*blockDim.z + threadIdx.z;
     int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
 
-    if(i<N_grid && j<N_grid && k<N_grid)
-    {
+    if(i<N_grid && j<N_grid && k<N_grid)    {
         output[index].x = input[index];
         output[index].y = 0.0f;
     }
@@ -123,8 +118,7 @@ __global__ void complex2real(cufftComplex *input, float *output){
     int k = blockIdx.z*blockDim.z + threadIdx.z;
     int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
 
-    if(i<N_grid && j<N_grid && k<N_grid)
-    {
+    if(i<N_grid && j<N_grid && k<N_grid){
         output[index] = input[index].x/float(N_grid_all);
     }
 }
@@ -135,12 +129,52 @@ __global__ void scale_down_after_fft(Grid g){
     int k = blockIdx.z*blockDim.z + threadIdx.z;
     int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
 
-    if(i<N_grid && j<N_grid && k<N_grid)
-    {
+    if(i<N_grid && j<N_grid && k<N_grid){
         g.d_Ex[index] /= float(N_grid_all);
         g.d_Ey[index] /= float(N_grid_all);
         g.d_Ez[index] /= float(N_grid_all);
     }
+}
+void init_grid(Grid g){
+    g.rho = new float[N_grid_all];
+    g.Ex = new float[N_grid_all];
+    g.Ey = new float[N_grid_all];
+    g.Ez = new float[N_grid_all];
+
+    g.kv = new float[N_grid];
+    for (int i =0; i<=N_grid/2; i++)
+    {
+        g.kv[i] = i*2*M_PI;
+    }
+    for (int i = N_grid/2 + 1; i < N_grid; i++)
+    {
+        g.kv[i] = (i-N_grid)*2*M_PI;
+    }
+
+
+    cudaMalloc((void**)&(g.d_kv), sizeof(float)*N_grid);
+    cudaMemcpy(g.d_kv, g.kv, sizeof(float)*N_grid, cudaMemcpyHostToDevice);
+
+    cudaMalloc((void**)&(g.d_fourier_rho), sizeof(cufftComplex)*N_grid_all);
+    cudaMalloc((void**)&(g.d_fourier_Ex), sizeof(cufftComplex)*N_grid_all);
+    cudaMalloc((void**)&(g.d_fourier_Ey), sizeof(cufftComplex)*N_grid_all);
+    cudaMalloc((void**)&(g.d_fourier_Ez), sizeof(cufftComplex)*N_grid_all);
+    cudaMalloc((void**)&(g.d_rho), sizeof(float)*N_grid_all);
+    cudaMalloc((void**)&(g.d_Ex), sizeof(float)*N_grid_all);
+    cudaMalloc((void**)&(g.d_Ey), sizeof(float)*N_grid_all);
+    cudaMalloc((void**)&(g.d_Ez), sizeof(float)*N_grid_all);
+    cufftPlan3d(&(g.plan_forward), N_grid, N_grid, N_grid, CUFFT_R2C);
+    cufftPlan3d(&(g.plan_backward), N_grid, N_grid, N_grid, CUFFT_C2R);
+}
+void field_solver(Grid g){
+    cufftExecR2C(g.plan_forward, g.d_rho, g.d_fourier_rho);
+
+    solve_poisson<<<gridBlocks, gridThreads>>>(g);
+    cufftExecC2R(g.plan_backward, g.d_fourier_Ex, g.d_Ex);
+    cufftExecC2R(g.plan_backward, g.d_fourier_Ey, g.d_Ey);
+    cufftExecC2R(g.plan_backward, g.d_fourier_Ez, g.d_Ez);
+
+    scale_down_after_fft<<<gridBlocks, gridThreads>>>(g);
 }
 
 __device__ int position_to_grid_index(float X){
@@ -221,14 +255,14 @@ __global__ void InitialVelocityStep(Species s, Grid g){
     {
         Particle *p = &(s.particles[n]);
         //gather electric field
-        float Ex = gather_grid_to_particle(*p, g.d_Ex);
-        float Ey = gather_grid_to_particle(*p, g.d_Ey);
-        float Ez = gather_grid_to_particle(*p, g.d_Ez);
+        float Ex = gather_grid_to_particle(p, g.d_Ex);
+        float Ey = gather_grid_to_particle(p, g.d_Ey);
+        float Ez = gather_grid_to_particle(p, g.d_Ez);
 
        //use electric field to accelerate particles
-       (*p).vx -= 0.5f*dt*qm*Ex;
-       (*p).vy -= 0.5f*dt*qm*Ey;
-       (*p).vz -= 0.5f*dt*qm*Ez;
+       p->vx -= 0.5f*dt*s.q/s.m*Ex;
+       p->vy -= 0.5f*dt*s.q/s.m*Ey;
+       p->vz -= 0.5f*dt*s.q/s.m*Ez;
     }
 }
 
@@ -242,152 +276,79 @@ __global__ void ParticleKernel(Species s, Grid g){
        (*p).x = fmod(((*p).y + (*p).vy*dt),L);
        (*p).x = fmod(((*p).z + (*p).vz*dt),L);
        //gather electric field
-       float Ex = gather_grid_to_particle(X[n], Y[n], Z[n], g.d_Ex);
-       float Ey = gather_grid_to_particle(X[n], Y[n], Z[n], g.d_Ey);
-       float Ez = gather_grid_to_particle(X[n], Y[n], Z[n], g.d_Ez);
+       float Ex = gather_grid_to_particle(p, g.d_Ex);
+       float Ey = gather_grid_to_particle(p, g.d_Ey);
+       float Ez = gather_grid_to_particle(p, g.d_Ez);
 
        //use electric field to accelerate particles
-       (*p).vx[n] += dt*qm*Ex;
-       (*p).vy[n] += dt*qm*Ey;
-       (*p).vz[n] += dt*qm*Ez;
+       p->vx += dt*s.q/s.m*Ex;
+       p->vy += dt*s.q/s.m*Ey;
+       p->vz += dt*s.q/s.m*Ez;
    }
 }
 
-void init_field_solver(Grid g)
-{
 
-    float *k = new float[N_grid];
-    for (int i =0; i<=N/2; i++)
-    {
-        k[i] = i*2*M_PI;
-    }
-    for (int i = N/2 + 1; i < N; i++)
-    {
-        k[i] = (i-N)*2*M_PI;
-    }
-
-
-    cudaMalloc((void**)&d_kv, sizeof(float)*N_grid);
-    cudaMemcpy(d_kv, k, sizeof(float)*N_grid, cudaMemcpyHostToDevice);
-
-    cudaMalloc((void**)&d_fourier_charge, sizeof(cufftComplex)*N_grid_all);
-    cudaMalloc((void**)&d_fourier_Ex, sizeof(cufftComplex)*N_grid_all);
-    cudaMalloc((void**)&d_fourier_Ey, sizeof(cufftComplex)*N_grid_all);
-    cudaMalloc((void**)&d_fourier_Ez, sizeof(cufftComplex)*N_grid_all);
-    cudaMalloc((void**)&d_charge, sizeof(float)*N_grid_all);
-    cudaMalloc((void**)&d_Ex, sizeof(float)*N_grid_all);
-    cudaMalloc((void**)&d_Ey, sizeof(float)*N_grid_all);
-    cudaMalloc((void**)&d_Ez, sizeof(float)*N_grid_all);
-    cufftPlan3d(&plan, N_grid, N_grid, N_grid, CUFFT_R2C);
-}
-void field_solver(float *d_charge, float *d_Ex, float *d_Ey, float *d_Ez, float *d_k)
-{
-    cufftExecR2C(plan, d_charge, d_fourier_charge, CUFFT_FORWARD);
-
-    solve_poisson<<<gridBlocks, gridThreads>>>(d_fourier_charge,
-            d_fourier_Ex, d_fourier_Ey, d_fourier_Ez,d_kv);
-    cufftExecC2R(plan, d_fourier_Ex, d_Ex, CUFFT_INVERSE);
-    cufftExecC2R(plan, d_fourier_Ey, d_Ey, CUFFT_INVERSE);
-    cufftExecC2R(plan, d_fourier_Ez, d_Ez, CUFFT_INVERSE);
-
-    scale_down_after_fft<<<gridBlocks, gridThreads>>>(d_Ex, d_Ey, d_Ez);
+void init_species(Species s){
+    s.particles = new Particle[N_particles];
+    cudaMalloc((void**)&(s.d_particles), sizeof(Particle)*N_particles);
 }
 
+void dump_density_data(Grid g, char* name)
+{
+    cudaMemcpy(g.rho, g.d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost);
+    FILE *density_data = fopen(name, "w");
+    for (int n = 0; n < N_grid_all; n++)
+    {
+        fprintf(density_data, "%f\n", g.rho[n]);
+    }
+}
 
+void dump_position_data(Species s, char* name)
+{
+    cudaMemcpy(s.particles, s.d_particles, sizeof(Particle)*N_particles, cudaMemcpyDeviceToHost);
+    FILE *initial_position_data = fopen(name, "w");
+    for (int i =0; i<N_particles; i++)
+    {
+        Particle *p = &(s.particles[i]);
+        fprintf(initial_position_data, "%f %f %f\n", p->x, p->y, p->z);
+    }
+}
 
 int main(void){
 
-    cufftComplex *d_fourier_Ex, *d_fourier_Ey, *d_fourier_Ez,
-        *d_fourier_charge;
-    cufftHandle plan;
-    float *charge = new float[N_grid_all];
-    float *d_charge;
+    Grid g;
+    init_grid(g);
     //TODO: routine checks for cuda status
 
-    float *d_X, *d_Y, *d_Z;
-    float *d_Vx, *d_Vy, *d_Vz;
+    Species electrons;
 
-    float *X = new float[N_particles];
-    float *Y = new float[N_particles];
-    float *Z = new float[N_particles];
-    float *Vx = new float[N_particles];
-    float *Vy = new float[N_particles];
-    float *Vz = new float[N_particles];
+    InitParticleArrays<<<particleBlocks, particleThreads>>>(electrons);
 
 
-    cudaMalloc((void**)&d_X, sizeof(float)*N_particles);
-    cudaMalloc((void**)&d_Y, sizeof(float)*N_particles);
-    cudaMalloc((void**)&d_Z, sizeof(float)*N_particles);
-    cudaMalloc((void**)&d_Vx, sizeof(float)*N_particles);
-    cudaMalloc((void**)&d_Vy, sizeof(float)*N_particles);
-    cudaMalloc((void**)&d_Vz, sizeof(float)*N_particles);
-    InitParticleArrays<<<particleBlocks, particleThreads>>>(d_X, d_Y, d_Z, d_Vx, d_Vy, d_Vz);
-    InitialVelocityStep<<<particleBlocks, particleThreads>>>(d_X, d_Y, d_Z, d_Vx, d_Vy, d_Vz);
+    cudaMemset(&(g.d_rho), sizeof(float)*N_grid_all, 0);
+    scatter_charge<<<particleBlocks, particleThreads>>>(electrons, g);
+    field_solver(g);
+    InitialVelocityStep<<<particleBlocks, particleThreads>>>(electrons, g);
 
+    dump_density_data(g, "init_density.dat");
+    dump_position_data(electrons, "init_position.dat");
 
-    cudaMalloc((void**)&d_charge, sizeof(float)*N_grid_all);
-    cudaMemset(&d_charge, sizeof(float)*N_grid_all, 0);
-
-    scatter_charge<<<particleBlocks, particleThreads>>>(d_X, d_Y, d_Z, d_charge, 1);
-
-
-    cudaMemcpy(charge, d_charge, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost);
-    FILE *density_data = fopen("init_density.dat", "w");
-    for (int n = 0; n < N_grid_all; n++)
-    {
-        fprintf(density_data, "%f\n", charge[n]);
-    }
-
-
-    cudaMemcpy(X, d_X, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
-    cudaMemcpy(Y, d_Y, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
-    cudaMemcpy(Z, d_Z, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
-
-    FILE *initial_position_data = fopen("init_position.dat", "w");
-    for (int p =0; p<N_particles; p++)
-    {
-        fprintf(initial_position_data, "%f %f %f\n", X[p], Y[p], Z[p]);
-    }
-
-    FILE *trajectory_data = fopen("trajectory.dat", "w");
     for(int i =0; i<NT; i++)
     {
-        ParticleKernel<<<particleBlocks, particleThreads>>>(d_X, d_Y, d_Z, d_Vx, d_Vy, d_Vz);
-        cudaMemcpy(X, d_X, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
-        cudaMemcpy(Y, d_Y, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
-        cudaMemcpy(Z, d_Z, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
-        for (int p =0; p<10; p++)
-        {
-            fprintf(trajectory_data,"%f %f %f ", X[p], Y[p], Z[p]);
-        }
-        fprintf(trajectory_data, "\n");
+        ParticleKernel<<<particleBlocks, particleThreads>>>(electrons, g);
+
+        //TODO: rest of cycle, this needs to be a function
     }
 
 
 
-    cudaMemcpy(X, d_X, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
-    cudaMemcpy(Y, d_Y, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
-    cudaMemcpy(Z, d_Z, sizeof(float)*N_particles, cudaMemcpyDeviceToHost);
-    FILE *final_position_data = fopen("final_position.dat", "w");
-    for (int p =0; p<N_particles; p++)
-    {
-        fprintf(final_position_data, "%f %f %f\n", X[p], Y[p], Z[p]);
-    }
-
-    cudaMemset(&d_charge, sizeof(float)*N_grid_all, 0);
-    scatter_charge<<<particleBlocks, particleThreads>>>(d_X, d_Y, d_Z, d_charge, 1);
-    cudaMemcpy(charge, d_charge, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost);
-    FILE *final_density_data = fopen("final_density.dat", "w");
-    for (int n = 0; n < N_grid_all; n++)
-    {
-        fprintf(final_density_data, "%f\n", charge[n]);
-    }
-
-    cudaFree(d_X);
-    cudaFree(d_Y);
-    cudaFree(d_Z);
-    cudaFree(d_Vx);
-    cudaFree(d_Vy);
-    cudaFree(d_Vz);
-    cudaFree(d_charge);
+    cudaFree(electrons.d_particles);
+    cudaFree(g.d_rho);
+    cudaFree(g.d_Ex);
+    cudaFree(g.d_Ey);
+    cudaFree(g.d_Ez);
+    cudaFree(g.d_fourier_Ex);
+    cudaFree(g.d_fourier_Ey);
+    cudaFree(g.d_fourier_Ez);
+    cudaFree(g.d_fourier_rho);
 }
