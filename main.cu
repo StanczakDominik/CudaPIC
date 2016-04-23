@@ -2,6 +2,9 @@
 #include <curand.h>
 #include <curand_kernel.h>
 #include <cufft.h>
+#include <iostream>
+using namespace std;
+
 
 #define N_particles_1_axis 128 //should be maybe connected to threadsPerBlock somehow
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis) //does this compile with const? //2^4^3 = 2^7 = 128
@@ -15,7 +18,6 @@
 #define dy dx
 #define dz dx
 #define epsilon_zero 1.0f
-#include <cufft.h>
 size_t particle_array_size = N_particles*sizeof(float);
 // size_t grid_array_size = N_grid*sizeof(float);
 
@@ -31,7 +33,13 @@ dim3 particleThreads(64);
 dim3 particleBlocks(N_particles/particleThreads.x);
 dim3 gridThreads(16,16,16);
 dim3 gridBlocks(N_grid/gridThreads.x, N_grid/gridThreads.y, N_grid/gridThreads.z);
-
+static void CUDA_ERROR( cudaError_t err)
+{
+    if (err != cudaSuccess) {
+        printf("CUDA ERROR: %s, exiting\n", cudaGetErrorString(err));
+        exit(-1);
+    }
+}
 struct Grid{
     // int N_grid;
     // int N_grid_all;
@@ -152,17 +160,17 @@ void init_grid(Grid g){
     }
 
 
-    cudaMalloc((void**)&(g.d_kv), sizeof(float)*N_grid);
-    cudaMemcpy(g.d_kv, g.kv, sizeof(float)*N_grid, cudaMemcpyHostToDevice);
+    CUDA_ERROR(cudaMalloc((void**)&(g.d_kv), sizeof(float)*N_grid));
+    CUDA_ERROR(cudaMemcpy(g.d_kv, g.kv, sizeof(float)*N_grid, cudaMemcpyHostToDevice));
 
-    cudaMalloc((void**)&(g.d_fourier_rho), sizeof(cufftComplex)*N_grid_all);
-    cudaMalloc((void**)&(g.d_fourier_Ex), sizeof(cufftComplex)*N_grid_all);
-    cudaMalloc((void**)&(g.d_fourier_Ey), sizeof(cufftComplex)*N_grid_all);
-    cudaMalloc((void**)&(g.d_fourier_Ez), sizeof(cufftComplex)*N_grid_all);
-    cudaMalloc((void**)&(g.d_rho), sizeof(float)*N_grid_all);
-    cudaMalloc((void**)&(g.d_Ex), sizeof(float)*N_grid_all);
-    cudaMalloc((void**)&(g.d_Ey), sizeof(float)*N_grid_all);
-    cudaMalloc((void**)&(g.d_Ez), sizeof(float)*N_grid_all);
+    CUDA_ERROR(cudaMalloc((void**)&(g.d_fourier_rho), sizeof(cufftComplex)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g.d_fourier_Ex), sizeof(cufftComplex)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g.d_fourier_Ey), sizeof(cufftComplex)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g.d_fourier_Ez), sizeof(cufftComplex)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g.d_rho), sizeof(float)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g.d_Ex), sizeof(float)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g.d_Ey), sizeof(float)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g.d_Ez), sizeof(float)*N_grid_all));
     cufftPlan3d(&(g.plan_forward), N_grid, N_grid, N_grid, CUFFT_R2C);
     cufftPlan3d(&(g.plan_backward), N_grid, N_grid, N_grid, CUFFT_C2R);
 }
@@ -290,12 +298,15 @@ __global__ void ParticleKernel(Species s, Grid g){
 
 void init_species(Species s){
     s.particles = new Particle[N_particles];
-    cudaMalloc((void**)&(s.d_particles), sizeof(Particle)*N_particles);
+    CUDA_ERROR(cudaMalloc((void**)&(s.d_particles), sizeof(Particle)*N_particles));
+    cout << "initializing particles" << endl;
+    InitParticleArrays<<<particleBlocks, particleThreads>>>(s);
 }
 
 void dump_density_data(Grid g, char* name)
 {
-    cudaMemcpy(g.rho, g.d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost);
+    cout << "dumping" << endl;
+    CUDA_ERROR(cudaMemcpy(g.rho, g.d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
     FILE *density_data = fopen(name, "w");
     for (int n = 0; n < N_grid_all; n++)
     {
@@ -305,7 +316,7 @@ void dump_density_data(Grid g, char* name)
 
 void dump_position_data(Species s, char* name)
 {
-    cudaMemcpy(s.particles, s.d_particles, sizeof(Particle)*N_particles, cudaMemcpyDeviceToHost);
+    CUDA_ERROR(cudaMemcpy(s.particles, s.d_particles, sizeof(Particle)*N_particles, cudaMemcpyDeviceToHost));
     FILE *initial_position_data = fopen(name, "w");
     for (int i =0; i<N_particles; i++)
     {
@@ -321,18 +332,26 @@ int main(void){
     //TODO: routine checks for cuda status
 
     Species electrons;
+    electrons.q = -1.0f;
+    electrons.m = 1.0f;
+    electrons.N = N_particles;
+    init_species(electrons);
 
-    InitParticleArrays<<<particleBlocks, particleThreads>>>(electrons);
 
-
-    cudaMemset(&(g.d_rho), sizeof(float)*N_grid_all, 0);
+    cout << "solving field" << endl;
+    CUDA_ERROR(cudaMemset(&(g.d_rho), sizeof(float)*N_grid_all, 0));
     scatter_charge<<<particleBlocks, particleThreads>>>(electrons, g);
     field_solver(g);
+
+    cout << "rewinding" << endl;
     InitialVelocityStep<<<particleBlocks, particleThreads>>>(electrons, g);
 
-    dump_density_data(g, "init_density.dat");
+    cout << "dumping positions" << endl;
     dump_position_data(electrons, "init_position.dat");
+    cout << "dumping density" << endl;
+    dump_density_data(g, "init_density.dat");
 
+    cout << "entering time loop" << endl;
     for(int i =0; i<NT; i++)
     {
         ParticleKernel<<<particleBlocks, particleThreads>>>(electrons, g);
@@ -340,15 +359,16 @@ int main(void){
         //TODO: rest of cycle, this needs to be a function
     }
 
+    cout << "finished time loop" << endl;
 
 
-    cudaFree(electrons.d_particles);
-    cudaFree(g.d_rho);
-    cudaFree(g.d_Ex);
-    cudaFree(g.d_Ey);
-    cudaFree(g.d_Ez);
-    cudaFree(g.d_fourier_Ex);
-    cudaFree(g.d_fourier_Ey);
-    cudaFree(g.d_fourier_Ez);
-    cudaFree(g.d_fourier_rho);
+    CUDA_ERROR(cudaFree(electrons.d_particles));
+    CUDA_ERROR(cudaFree(g.d_rho));
+    CUDA_ERROR(cudaFree(g.d_Ex));
+    CUDA_ERROR(cudaFree(g.d_Ey));
+    CUDA_ERROR(cudaFree(g.d_Ez));
+    CUDA_ERROR(cudaFree(g.d_fourier_Ex));
+    CUDA_ERROR(cudaFree(g.d_fourier_Ey));
+    CUDA_ERROR(cudaFree(g.d_fourier_Ez));
+    CUDA_ERROR(cudaFree(g.d_fourier_rho));
 }
