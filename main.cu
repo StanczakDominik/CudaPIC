@@ -85,27 +85,28 @@ struct Species{
     Particle *d_particles;
 };
 
-__global__ void solve_poisson(Grid g){
+__global__ void solve_poisson(float *d_kv, cufftComplex *d_fourier_rho, cufftComplex *d_fourier_Ex, cufftComplex *d_fourier_Ey, cufftComplex *d_fourier_Ez){
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
 
     int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
     if(i<N_grid && j<N_grid && k<N_grid){
-        float k2 = g.d_kv[i]*g.d_kv[i] + g.d_kv[j]*g.d_kv[j] + g.d_kv[k]*g.d_kv[k];
+        //TODO: k2 doesn't actually have to be recalculated every time
+        float k2 = d_kv[i]*d_kv[i] + d_kv[j]*d_kv[j] + d_kv[k]*d_kv[k];
         if (i==0 && j==0 && k ==0)    {
             k2 = 1.0f;
         }
 
         //see: birdsall langdon page 19
-        g.d_fourier_Ex[index].x = -g.d_kv[i]*g.d_fourier_rho[index].x/k2/epsilon_zero;
-        g.d_fourier_Ex[index].y = -g.d_kv[i]*g.d_fourier_rho[index].y/k2/epsilon_zero;
+        d_fourier_Ex[index].x = -d_kv[i]*d_fourier_rho[index].x/k2/epsilon_zero;
+        d_fourier_Ex[index].y = -d_kv[i]*d_fourier_rho[index].y/k2/epsilon_zero;
 
-        g.d_fourier_Ey[index].x = -g.d_kv[j]*g.d_fourier_rho[index].x/k2/epsilon_zero;
-        g.d_fourier_Ey[index].y = -g.d_kv[j]*g.d_fourier_rho[index].y/k2/epsilon_zero;
+        d_fourier_Ey[index].x = -d_kv[j]*d_fourier_rho[index].x/k2/epsilon_zero;
+        d_fourier_Ey[index].y = -d_kv[j]*d_fourier_rho[index].y/k2/epsilon_zero;
 
-        g.d_fourier_Ez[index].x = -g.d_kv[k]*g.d_fourier_rho[index].x/k2/epsilon_zero;
-        g.d_fourier_Ez[index].y = -g.d_kv[k]*g.d_fourier_rho[index].y/k2/epsilon_zero;
+        d_fourier_Ez[index].x = -d_kv[k]*d_fourier_rho[index].x/k2/epsilon_zero;
+        d_fourier_Ez[index].y = -d_kv[k]*d_fourier_rho[index].y/k2/epsilon_zero;
     }
 }
 
@@ -131,58 +132,58 @@ __global__ void complex2real(cufftComplex *input, float *output){
     }
 }
 
-__global__ void scale_down_after_fft(Grid g){
+__global__ void scale_down_after_fft(float *d_Ex, float *d_Ey, float *d_Ez){
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
     int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
 
     if(i<N_grid && j<N_grid && k<N_grid){
-        g.d_Ex[index] /= float(N_grid_all);
-        g.d_Ey[index] /= float(N_grid_all);
-        g.d_Ez[index] /= float(N_grid_all);
+        d_Ex[index] /= float(N_grid_all);
+        d_Ey[index] /= float(N_grid_all);
+        d_Ez[index] /= float(N_grid_all);
     }
 }
-void init_grid(Grid g){
-    g.rho = new float[N_grid_all];
-    g.Ex = new float[N_grid_all];
-    g.Ey = new float[N_grid_all];
-    g.Ez = new float[N_grid_all];
+void init_grid(Grid *g){
+    g->rho = new float[N_grid_all];
+    g->Ex = new float[N_grid_all];
+    g->Ey = new float[N_grid_all];
+    g->Ez = new float[N_grid_all];
 
-    g.kv = new float[N_grid];
+    g->kv = new float[N_grid];
     for (int i =0; i<=N_grid/2; i++)
     {
-        g.kv[i] = i*2*M_PI;
+        g->kv[i] = i*2*M_PI;
     }
     for (int i = N_grid/2 + 1; i < N_grid; i++)
     {
-        g.kv[i] = (i-N_grid)*2*M_PI;
+        g->kv[i] = (i-N_grid)*2*M_PI;
     }
 
 
-    CUDA_ERROR(cudaMalloc((void**)&(g.d_kv), sizeof(float)*N_grid));
-    CUDA_ERROR(cudaMemcpy(g.d_kv, g.kv, sizeof(float)*N_grid, cudaMemcpyHostToDevice));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_kv), sizeof(float)*N_grid));
+    CUDA_ERROR(cudaMemcpy(g->d_kv, g->kv, sizeof(float)*N_grid, cudaMemcpyHostToDevice));
 
-    CUDA_ERROR(cudaMalloc((void**)&(g.d_fourier_rho), sizeof(cufftComplex)*N_grid_all));
-    CUDA_ERROR(cudaMalloc((void**)&(g.d_fourier_Ex), sizeof(cufftComplex)*N_grid_all));
-    CUDA_ERROR(cudaMalloc((void**)&(g.d_fourier_Ey), sizeof(cufftComplex)*N_grid_all));
-    CUDA_ERROR(cudaMalloc((void**)&(g.d_fourier_Ez), sizeof(cufftComplex)*N_grid_all));
-    CUDA_ERROR(cudaMalloc((void**)&(g.d_rho), sizeof(float)*N_grid_all));
-    CUDA_ERROR(cudaMalloc((void**)&(g.d_Ex), sizeof(float)*N_grid_all));
-    CUDA_ERROR(cudaMalloc((void**)&(g.d_Ey), sizeof(float)*N_grid_all));
-    CUDA_ERROR(cudaMalloc((void**)&(g.d_Ez), sizeof(float)*N_grid_all));
-    cufftPlan3d(&(g.plan_forward), N_grid, N_grid, N_grid, CUFFT_R2C);
-    cufftPlan3d(&(g.plan_backward), N_grid, N_grid, N_grid, CUFFT_C2R);
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_fourier_rho), sizeof(cufftComplex)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_fourier_Ex), sizeof(cufftComplex)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_fourier_Ey), sizeof(cufftComplex)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_fourier_Ez), sizeof(cufftComplex)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_rho), sizeof(float)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_Ex), sizeof(float)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_Ey), sizeof(float)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_Ez), sizeof(float)*N_grid_all));
+    cufftPlan3d(&(g->plan_forward), N_grid, N_grid, N_grid, CUFFT_R2C);
+    cufftPlan3d(&(g->plan_backward), N_grid, N_grid, N_grid, CUFFT_C2R);
 }
-void field_solver(Grid g){
-    cufftExecR2C(g.plan_forward, g.d_rho, g.d_fourier_rho);
+void field_solver(Grid *g){
+    cufftExecR2C(g->plan_forward, g->d_rho, g->d_fourier_rho);
 
-    solve_poisson<<<gridBlocks, gridThreads>>>(g);
-    cufftExecC2R(g.plan_backward, g.d_fourier_Ex, g.d_Ex);
-    cufftExecC2R(g.plan_backward, g.d_fourier_Ey, g.d_Ey);
-    cufftExecC2R(g.plan_backward, g.d_fourier_Ez, g.d_Ez);
+    solve_poisson<<<gridBlocks, gridThreads>>>(g->d_kv, g->d_fourier_rho, g->d_fourier_Ex, g->d_fourier_Ey, g->d_fourier_Ez);
+    cufftExecC2R(g->plan_backward, g->d_fourier_Ex, g->d_Ex);
+    cufftExecC2R(g->plan_backward, g->d_fourier_Ey, g->d_Ey);
+    cufftExecC2R(g->plan_backward, g->d_fourier_Ez, g->d_Ez);
 
-    scale_down_after_fft<<<gridBlocks, gridThreads>>>(g);
+    scale_down_after_fft<<<gridBlocks, gridThreads>>>(g->d_Ex, g->d_Ey, g->d_Ez);
 }
 
 __device__ int position_to_grid_index(float X){
@@ -193,41 +194,47 @@ __device__ float position_in_cell(float x){
     return x - grid_index*dx;
 }
 
-__global__ void scatter_charge(Species s, Grid g){
+__global__ void scatter_charge(Particle *d_P, float q, float* d_rho){
     int n = blockIdx.x*blockDim.x + threadIdx.x;
 
-    int i = position_to_grid_index(s.d_particles[n].x);
-    int j = position_to_grid_index(s.d_particles[n].y);
-    int k = position_to_grid_index(s.d_particles[n].z);
+    float x = d_P[n].x;
+    float y = d_P[n].y;
+    float z = d_P[n].z;
+    int i = position_to_grid_index(x);
+    int j = position_to_grid_index(y);
+    int k = position_to_grid_index(z);
 
-    float Xr = position_in_cell(s.d_particles[n].x)/dx;
+    float Xr = position_in_cell(x)/dx;
     float Xl = 1 - Xr;
-    float Yr = position_in_cell(s.d_particles[n].y)/dy;
+    float Yr = position_in_cell(y)/dy;
     float Yl = 1 - Yr;
-    float Zr = position_in_cell(s.d_particles[n].z)/dz;
+    float Zr = position_in_cell(z)/dz;
     float Zl = 1 - Zr;
 
     //this part is literally hitler - not just unreadable but slow af
     //TODO: redo this using a reduce, maybe?
-    atomicAdd(&(g.d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]), s.q*Xl*Yl*Zl);
-    atomicAdd(&(g.d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]), s.q*Xr*Yl*Zl);
-    atomicAdd(&(g.d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]), s.q*Xl*Yr*Zl);
-    atomicAdd(&(g.d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]), s.q*Xl*Yl*Zr);
-    atomicAdd(&(g.d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]), s.q*Xr*Yr*Zl);
-    atomicAdd(&(g.d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]), s.q*Xr*Yl*Zr);
-    atomicAdd(&(g.d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]), s.q*Xl*Yr*Zr);
-    atomicAdd(&(g.d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]), s.q*Xr*Yr*Zr);
+    atomicAdd(&(d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]), q*Xl*Yl*Zl);
+    atomicAdd(&(d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]), q*Xr*Yl*Zl);
+    atomicAdd(&(d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]), q*Xl*Yr*Zl);
+    atomicAdd(&(d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]), q*Xl*Yl*Zr);
+    atomicAdd(&(d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]), q*Xr*Yr*Zl);
+    atomicAdd(&(d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]), q*Xr*Yl*Zr);
+    atomicAdd(&(d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]), q*Xl*Yr*Zr);
+    atomicAdd(&(d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]), q*Xr*Yr*Zr);
 }
 __device__ float gather_grid_to_particle(Particle *p, float *grid){
-    int i = position_to_grid_index((*p).x);
-    int j = position_to_grid_index((*p).y);
-    int k = position_to_grid_index((*p).z);
+    float x = p->x;
+    float y = p->y;
+    float z = p->z;
+    int i = position_to_grid_index(x);
+    int j = position_to_grid_index(y);
+    int k = position_to_grid_index(z);
 
-    float Xr = position_in_cell((*p).x)/dx;
+    float Xr = position_in_cell(x)/dx;
     float Xl = 1 - Xr;
-    float Yr = position_in_cell((*p).y)/dy;
+    float Yr = position_in_cell(y)/dy;
     float Yl = 1 - Yr;
-    float Zr = position_in_cell((*p).z)/dz;
+    float Zr = position_in_cell(z)/dz;
     float Zl = 1 - Zr;
 
     float interpolated_scalar = 0.0f;
@@ -245,11 +252,11 @@ __device__ float gather_grid_to_particle(Particle *p, float *grid){
 }
 
 
-__global__ void InitParticleArrays(Particle *s){
+__global__ void InitParticleArrays(Particle *d_p){
     int n = blockDim.x * blockIdx.x + threadIdx.x;
     if (n<N_particles)
     {
-        Particle *p = &(s[n]);
+        Particle *p = &(d_p[n]);
         (*p).x = L/float(N_particles_1_axis)*(n%N_particles_1_axis);
         (*p).y = L/float(N_particles_1_axis)*(n/N_particles_1_axis)/float(N_particles_1_axis);
         (*p).z = L/float(N_particles_1_axis)*(n/N_particles_1_axis/N_particles_1_axis);
@@ -258,40 +265,40 @@ __global__ void InitParticleArrays(Particle *s){
         (*p).vz = 0.0f;
     }
 }
-__global__ void InitialVelocityStep(Species s, Grid g){
+__global__ void InitialVelocityStep(Particle *d_p, float q, float m, float *d_Ex, float *d_Ey, float *d_Ez){
     int n = blockDim.x * blockIdx.x + threadIdx.x;
     {
-        Particle *p = &(s.particles[n]);
+        Particle *p = &(d_p[n]);
         //gather electric field
-        float Ex = gather_grid_to_particle(p, g.d_Ex);
-        float Ey = gather_grid_to_particle(p, g.d_Ey);
-        float Ez = gather_grid_to_particle(p, g.d_Ez);
+        float Ex = gather_grid_to_particle(p, d_Ex);
+        float Ey = gather_grid_to_particle(p, d_Ey);
+        float Ez = gather_grid_to_particle(p, d_Ez);
 
        //use electric field to accelerate particles
-       p->vx -= 0.5f*dt*s.q/s.m*Ex;
-       p->vy -= 0.5f*dt*s.q/s.m*Ey;
-       p->vz -= 0.5f*dt*s.q/s.m*Ez;
+       p->vx -= 0.5f*dt*q/m*Ex;
+       p->vy -= 0.5f*dt*q/m*Ey;
+       p->vz -= 0.5f*dt*q/m*Ez;
     }
 }
 
-__global__ void ParticleKernel(Species s, Grid g){
+__global__ void ParticleKernel(Particle *d_p, float q, float m, float *d_Ex, float *d_Ey, float *d_Ez){
    int n = blockDim.x * blockIdx.x + threadIdx.x;
    if(n<N_particles)
    {
-       Particle *p = &(s.particles[n]);
+       Particle *p = &(d_p[n]);
        //push positions, enforce periodic boundary conditions
        (*p).x = fmod(((*p).x + (*p).vx*dt),L);
        (*p).x = fmod(((*p).y + (*p).vy*dt),L);
        (*p).x = fmod(((*p).z + (*p).vz*dt),L);
        //gather electric field
-       float Ex = gather_grid_to_particle(p, g.d_Ex);
-       float Ey = gather_grid_to_particle(p, g.d_Ey);
-       float Ez = gather_grid_to_particle(p, g.d_Ez);
+       float Ex = gather_grid_to_particle(p, d_Ex);
+       float Ey = gather_grid_to_particle(p, d_Ey);
+       float Ez = gather_grid_to_particle(p, d_Ez);
 
        //use electric field to accelerate particles
-       p->vx += dt*s.q/s.m*Ex;
-       p->vy += dt*s.q/s.m*Ey;
-       p->vz += dt*s.q/s.m*Ez;
+       p->vx -= 0.5f*dt*q/m*Ex;
+       p->vy -= 0.5f*dt*q/m*Ey;
+       p->vz -= 0.5f*dt*q/m*Ez;
    }
 }
 
@@ -303,13 +310,13 @@ void init_species(Species *s){
     InitParticleArrays<<<particleBlocks, particleThreads>>>(s->d_particles);
 }
 
-void dump_density_data(Grid g, char* name){
+void dump_density_data(Grid *g, char* name){
     cout << "dumping" << endl;
-    CUDA_ERROR(cudaMemcpy(g.rho, g.d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->rho, g->d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
     FILE *density_data = fopen(name, "w");
     for (int n = 0; n < N_grid_all; n++)
     {
-        fprintf(density_data, "%f\n", g.rho[n]);
+        fprintf(density_data, "%f\n", g->rho[n]);
     }
 }
 
@@ -328,7 +335,7 @@ void dump_position_data(Species *s, char* name){
 int main(void){
 
     Grid g;
-    init_grid(g);
+    init_grid(&g);
     //TODO: routine checks for cuda status
 
     Species electrons;
@@ -345,19 +352,20 @@ int main(void){
 
     cout << "solving field" << endl;
     CUDA_ERROR(cudaMemset(&(g.d_rho), sizeof(float)*N_grid_all, 0));
-    scatter_charge<<<particleBlocks, particleThreads>>>(electrons, g);
-    field_solver(g);
+    // __global__ void scatter_charge(Particle *d_P, float q, float* d_rho){
+    scatter_charge<<<particleBlocks, particleThreads>>>(electrons.d_particles, electrons.q, g.d_rho);
+    field_solver(&g);
 
     cout << "rewinding" << endl;
-    InitialVelocityStep<<<particleBlocks, particleThreads>>>(electrons, g);
+    InitialVelocityStep<<<particleBlocks, particleThreads>>>(electrons.d_particles, electrons.q, electrons.m, g.d_Ex, g.d_Ey, g.d_Ez);
 
     cout << "dumping density" << endl;
-    dump_density_data(g, "init_density.dat");
+    dump_density_data(&g, "init_density.dat");
 
     cout << "entering time loop" << endl;
     for(int i =0; i<NT; i++)
     {
-        ParticleKernel<<<particleBlocks, particleThreads>>>(electrons, g);
+        ParticleKernel<<<particleBlocks, particleThreads>>>(electrons.d_particles, electrons.q, electrons.m, g.d_Ex, g.d_Ey, g.d_Ez);
 
         //TODO: rest of cycle, this needs to be a function
     }
