@@ -245,11 +245,11 @@ __device__ float gather_grid_to_particle(Particle *p, float *grid){
 }
 
 
-__global__ void InitParticleArrays(Species s){
+__global__ void InitParticleArrays(Particle *s){
     int n = blockDim.x * blockIdx.x + threadIdx.x;
     if (n<N_particles)
     {
-        Particle *p = &(s.particles[n]);
+        Particle *p = &(s[n]);
         (*p).x = L/float(N_particles_1_axis)*(n%N_particles_1_axis);
         (*p).y = L/float(N_particles_1_axis)*(n/N_particles_1_axis)/float(N_particles_1_axis);
         (*p).z = L/float(N_particles_1_axis)*(n/N_particles_1_axis/N_particles_1_axis);
@@ -296,15 +296,14 @@ __global__ void ParticleKernel(Species s, Grid g){
 }
 
 
-void init_species(Species s){
-    s.particles = new Particle[N_particles];
-    CUDA_ERROR(cudaMalloc((void**)&(s.d_particles), sizeof(Particle)*N_particles));
+void init_species(Species *s){
+    s->particles = new Particle[N_particles];
+    CUDA_ERROR(cudaMalloc((void**)&(s->d_particles), sizeof(Particle)*N_particles));
     cout << "initializing particles" << endl;
-    InitParticleArrays<<<particleBlocks, particleThreads>>>(s);
+    InitParticleArrays<<<particleBlocks, particleThreads>>>(s->d_particles);
 }
 
-void dump_density_data(Grid g, char* name)
-{
+void dump_density_data(Grid g, char* name){
     cout << "dumping" << endl;
     CUDA_ERROR(cudaMemcpy(g.rho, g.d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
     FILE *density_data = fopen(name, "w");
@@ -314,13 +313,14 @@ void dump_density_data(Grid g, char* name)
     }
 }
 
-void dump_position_data(Species s, char* name)
-{
-    CUDA_ERROR(cudaMemcpy(s.particles, s.d_particles, sizeof(Particle)*N_particles, cudaMemcpyDeviceToHost));
+void dump_position_data(Species *s, char* name){
+    cout << "Copying particles from GPU to device"<< endl;
+    CUDA_ERROR(cudaMemcpy(s->particles, s->d_particles, sizeof(Particle)*N_particles, cudaMemcpyDeviceToHost));
+    cout << "Copied particles from GPU to device"<< endl;
     FILE *initial_position_data = fopen(name, "w");
     for (int i =0; i<N_particles; i++)
     {
-        Particle *p = &(s.particles[i]);
+        Particle *p = &(s->particles[i]);
         fprintf(initial_position_data, "%f %f %f\n", p->x, p->y, p->z);
     }
 }
@@ -335,7 +335,12 @@ int main(void){
     electrons.q = -1.0f;
     electrons.m = 1.0f;
     electrons.N = N_particles;
-    init_species(electrons);
+    init_species(&electrons);
+
+    CUDA_ERROR(cudaGetLastError());
+
+    cout << "dumping positions" << endl;
+    dump_position_data(&electrons, "init_position.dat");
 
 
     cout << "solving field" << endl;
@@ -346,8 +351,6 @@ int main(void){
     cout << "rewinding" << endl;
     InitialVelocityStep<<<particleBlocks, particleThreads>>>(electrons, g);
 
-    cout << "dumping positions" << endl;
-    dump_position_data(electrons, "init_position.dat");
     cout << "dumping density" << endl;
     dump_density_data(g, "init_density.dat");
 

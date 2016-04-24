@@ -58,4 +58,7 @@ int main()
     {
         printf("%d %d \n", arrays.i[i], arrays.j[i]);
     }
+
+    CUDA_ERROR(cudaFree(d_arrays.i));
+    CUDA_ERROR(cudaFree(d_arrays.j));
 }
