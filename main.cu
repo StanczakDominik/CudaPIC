@@ -175,6 +175,58 @@ void init_grid(Grid *g){
     cufftPlan3d(&(g->plan_forward), N_grid, N_grid, N_grid, CUFFT_R2C);
     cufftPlan3d(&(g->plan_backward), N_grid, N_grid, N_grid, CUFFT_C2R);
 }
+
+
+__global__ set_grid_array_to_value(float *arr, float value)
+    int i = blockIdx.x*blockDim.x + threadIdx.x;
+    int j = blockIdx.y*blockDim.y + threadIdx.y;
+    int k = blockIdx.z*blockDim.z + threadIdx.z;
+    int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
+
+    if(i<N_grid && j<N_grid && k<N_grid){
+        arr[index] = value;
+    }
+}
+void debug_field_solver_uniform(Grid *g){
+    set_grid_array_to_value<<<gridBlocks, gridThreads>>>(g->d_Ex, 1.0f);
+    set_grid_array_to_value<<<gridBlocks, gridThreads>>>(g->d_Ey, 0.0f);
+    set_grid_array_to_value<<<gridBlocks, gridThreads>>>(g->d_Ez, 0.0f);
+}
+void debug_field_solver_linear(Grid *g)
+{
+    float* linear_field_x = new float[N_grid_all];
+    float* linear_field_y = new float[N_grid_all];
+    float* linear_field_z = new float[N_grid_all];
+    for(int i = 0; i++; i<N_grid)
+        for(int j = 0; j++; j<N_grid)
+            for(int k = 0; k++; j<N_grid){
+                int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
+                linear_field_x[index] = dx*i;
+                linear_field_y[index] = dx*j;
+                linear_field_z[index] = dx*k;
+            }
+    cudaMemcpy(d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+}
+void debug_field_solver_quadratic(Grid *g)
+{
+    float* linear_field_x = new float[N_grid_all];
+    float* linear_field_y = new float[N_grid_all];
+    float* linear_field_z = new float[N_grid_all];
+    for(int i = 0; i++; i<N_grid)
+        for(int j = 0; j++; j<N_grid)
+            for(int k = 0; k++; j<N_grid){
+                int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
+                linear_field_x[index] = (dx*i)*(dx*i);
+                linear_field_y[index] = (dx*j)*(dx*j);
+                linear_field_z[index] = (dx*k)*(dx*k);
+            }
+    cudaMemcpy(d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+}
+
 void field_solver(Grid *g){
     cufftExecR2C(g->plan_forward, g->d_rho, g->d_fourier_rho);
 
