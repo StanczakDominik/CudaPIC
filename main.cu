@@ -254,12 +254,12 @@ __device__ float gather_grid_to_particle(Particle *p, float *grid){
 
 __global__ void InitParticleArrays(Particle *d_p){
     int n = blockDim.x * blockIdx.x + threadIdx.x;
-    if (n<N_particles)
-    {
+    if (n<N_particles){
         Particle *p = &(d_p[n]);
         (*p).x = L/float(N_particles_1_axis)*(n%N_particles_1_axis);
         (*p).y = L/float(N_particles_1_axis)*(n/N_particles_1_axis)/float(N_particles_1_axis);
-        (*p).z = L/float(N_particles_1_axis)*(n/N_particles_1_axis/N_particles_1_axis);
+        (*p).z = L/2.0f;
+        // (*p).z = L/float(N_particles_1_axis)*(n/N_particles_1_axis/N_particles_1_axis);
         (*p).vx = 0.0f;
         (*p).vy = 0.0f;
         (*p).vz = 0.0f;
@@ -332,8 +332,32 @@ void dump_position_data(Species *s, char* name){
     }
 }
 
-int main(void){
+void init_timestep(Grid &g, Species &electrons,  Species &ions){
+    cudaMemset(&(g->d_rho), sizeof(float)*N_grid_all, 0);
+    scatter_charge(electrons->d_particles, electrons->q, g->d_rho);
+    scatter_charge(ions->d_particles, ions->q, g->d_rho);
+    field_solver(g);
+    InitialVelocityStep<<<particleBlocks, particleThreads>>>(electrons->d_particles, electrons->q, electrons->m, g->d_Ex, g->d_Ey, g->d_Ez);
+    InitialVelocityStep<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, ions->m, g->d_Ex, g->d_Ey, g->d_Ez);
+}
 
+
+void timestep(Grid &g, Species &electrons,  Species &ions){
+	//1. move particles, gather electric fields at their locations, accelerate particles
+	ParticleKernel<<<particleBlocks, particleThreads>>>(electrons->d_particles, electrons->q, electrons->m, g->d_Ex, g->d_Ey, g->d_Ez);
+	ParticleKernel<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, ions->m, g->d_Ex, g->d_Ey, g->d_Ez);
+	//potential TODO: sort particles?????
+    //2. clear charge density for scattering fields to particles charge
+    cudaMemset(&(g->d_rho), sizeof(float)*N_grid_all, 0);
+    //3. gather charge from new particle position to grid
+    //TODO: note that I may need to cudaSyncThreads between these steps
+    scatter_charge(electrons->d_particles, electrons->q, g->d_rho);
+    scatter_charge(ions->d_particles, ions->q, g->d_rho);
+    //4. use charge density to calculate field
+    field_solver(g);
+}
+
+int main(void){
     Grid g;
     init_grid(&g);
     //TODO: routine checks for cuda status
@@ -344,35 +368,20 @@ int main(void){
     electrons.N = N_particles;
     init_species(&electrons);
 
-    CUDA_ERROR(cudaGetLastError());
+    Species ions;
+    ions.q = +1.0f;
+    ions.m = 10.0f;
+    ions.N = N_particles;
+    init_species(&ions);
 
-    cout << "dumping positions" << endl;
-    dump_position_data(&electrons, "init_position.dat");
+    init_timestep(&g, &electrons, &ions);
 
-
-    cout << "solving field" << endl;
-    CUDA_ERROR(cudaMemset(&(g.d_rho), sizeof(float)*N_grid_all, 0));
-    // __global__ void scatter_charge(Particle *d_P, float q, float* d_rho){
-    scatter_charge<<<particleBlocks, particleThreads>>>(electrons.d_particles, electrons.q, g.d_rho);
-    field_solver(&g);
-
-    cout << "rewinding" << endl;
-    InitialVelocityStep<<<particleBlocks, particleThreads>>>(electrons.d_particles, electrons.q, electrons.m, g.d_Ex, g.d_Ey, g.d_Ez);
-
-    cout << "dumping density" << endl;
-    dump_density_data(&g, "init_density.dat");
 
     cout << "entering time loop" << endl;
-    for(int i =0; i<NT; i++)
-    {
-        ParticleKernel<<<particleBlocks, particleThreads>>>(electrons.d_particles, electrons.q, electrons.m, g.d_Ex, g.d_Ey, g.d_Ez);
-
-        //TODO: rest of cycle, this needs to be a function
+    for(int i =0; i<NT; i++){
+        timestep(&g, &electrons, &ions);
     }
-
     cout << "finished time loop" << endl;
-
-
     CUDA_ERROR(cudaFree(electrons.d_particles));
     CUDA_ERROR(cudaFree(g.d_rho));
     CUDA_ERROR(cudaFree(g.d_Ex));
