@@ -256,13 +256,13 @@ __global__ void InitParticleArrays(Particle *d_p){
     int n = blockDim.x * blockIdx.x + threadIdx.x;
     if (n<N_particles){
         Particle *p = &(d_p[n]);
-        (*p).x = L/float(N_particles_1_axis)*(n%N_particles_1_axis);
-        (*p).y = L/float(N_particles_1_axis)*(n/N_particles_1_axis)/float(N_particles_1_axis);
-        (*p).z = L/2.0f;
-        // (*p).z = L/float(N_particles_1_axis)*(n/N_particles_1_axis/N_particles_1_axis);
-        (*p).vx = 0.0f;
-        (*p).vy = 0.0f;
-        (*p).vz = 0.0f;
+        p->x = L/float(N_particles_1_axis)*(n%N_particles_1_axis);
+        p->y = L/float(N_particles_1_axis)*(n/N_particles_1_axis)/float(N_particles_1_axis);
+        p->z = L/2.0f;
+        // p->z = L/float(N_particles_1_axis)*(n/N_particles_1_axis/N_particles_1_axis);
+        p->vx = 0.0f;
+        p->vy = 0.0f;
+        p->vz = 0.0f;
     }
 }
 __global__ void InitialVelocityStep(Particle *d_p, float q, float m, float *d_Ex, float *d_Ey, float *d_Ez){
@@ -287,9 +287,9 @@ __global__ void ParticleKernel(Particle *d_p, float q, float m, float *d_Ex, flo
    {
        Particle *p = &(d_p[n]);
        //push positions, enforce periodic boundary conditions
-       (*p).x = fmod(((*p).x + (*p).vx*dt),L);
-       (*p).x = fmod(((*p).y + (*p).vy*dt),L);
-       (*p).x = fmod(((*p).z + (*p).vz*dt),L);
+       p->x = fmod((p->x + p->vx*dt),L);
+       p->x = fmod((p->y + p->vy*dt),L);
+       p->x = fmod((p->z + p->vz*dt),L);
        //gather electric field
        float Ex = gather_grid_to_particle(p, d_Ex);
        float Ey = gather_grid_to_particle(p, d_Ey);
