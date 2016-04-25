@@ -9,7 +9,6 @@ using namespace std;
 #define N_particles_1_axis 128 //should be maybe connected to threadsPerBlock somehow
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis) //does this compile with const? //2^4^3 = 2^7 = 128
 #define L 1.f
-#
 #define dt 0.01f
 #define NT 500
 #define N_grid 16
@@ -308,10 +307,14 @@ __global__ void InitParticleArrays(Particle *d_p){
     int n = blockDim.x * blockIdx.x + threadIdx.x;
     if (n<N_particles){
         Particle *p = &(d_p[n]);
-        p->x = L/float(N_particles_1_axis)*(n%N_particles_1_axis);
-        p->y = L/float(N_particles_1_axis)*(n/N_particles_1_axis)/float(N_particles_1_axis);
-        p->z = L/2.0f;
-        // p->z = L/float(N_particles_1_axis)*(n/N_particles_1_axis/N_particles_1_axis);
+        
+        int i = n / (int)(N_particles_1_axis*N_particles_1_axis);
+        int j = (int) (n/N_particles_1_axis) % N_particles_1_axis;
+        int k = n % N_particles_1_axis;
+        p->x = L/float(N_particles_1_axis) * i;
+        p->y = L/float(N_particles_1_axis) * j;
+        p->z = L/float(N_particles_1_axis) * k;
+
         p->vx = 0.0f;
         p->vy = 0.0f;
         p->vz = 0.0f;
