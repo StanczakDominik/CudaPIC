@@ -5,18 +5,22 @@
 #include <iostream>
 using namespace std;
 
+#define ELECTRON_MASS 9.10938356e-31
+#define PROTON_MASS 1.6726219e-27
+#define ELECTRON_CHARGE 1.6021765e-19
+#define EPSILON_ZERO 8.854e-12
 
 #define N_particles_1_axis 128 //should be maybe connected to threadsPerBlock somehow
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis) //does this compile with const? //2^4^3 = 2^7 = 128
-#define L 1.f
-#define dt 0.01f
+#define L 1e-4
+#define dt 1e-11
+//TODO: THIS MAY HAVE TO BE CORRECTED
 #define NT 500
 #define N_grid 16
 #define N_grid_all (N_grid *N_grid * N_grid)
 #define dx (L/float(N_grid))
 #define dy dx
 #define dz dx
-#define epsilon_zero 1.0f
 size_t particle_array_size = N_particles*sizeof(float);
 // size_t grid_array_size = N_grid*sizeof(float);
 
@@ -91,21 +95,20 @@ __global__ void solve_poisson(float *d_kv, cufftComplex *d_fourier_rho, cufftCom
 
     int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
     if(i<N_grid && j<N_grid && k<N_grid){
-        //TODO: k2 doesn't actually have to be recalculated every time
         float k2 = d_kv[i]*d_kv[i] + d_kv[j]*d_kv[j] + d_kv[k]*d_kv[k];
         if (i==0 && j==0 && k ==0)    {
             k2 = 1.0f;
         }
 
         //see: birdsall langdon page 19
-        d_fourier_Ex[index].x = -d_kv[i]*d_fourier_rho[index].x/k2/epsilon_zero;
-        d_fourier_Ex[index].y = -d_kv[i]*d_fourier_rho[index].y/k2/epsilon_zero;
+        d_fourier_Ex[index].x = -d_kv[i]*d_fourier_rho[index].x/k2/EPSILON_ZERO;
+        d_fourier_Ex[index].y = -d_kv[i]*d_fourier_rho[index].y/k2/EPSILON_ZERO;
 
-        d_fourier_Ey[index].x = -d_kv[j]*d_fourier_rho[index].x/k2/epsilon_zero;
-        d_fourier_Ey[index].y = -d_kv[j]*d_fourier_rho[index].y/k2/epsilon_zero;
+        d_fourier_Ey[index].x = -d_kv[j]*d_fourier_rho[index].x/k2/EPSILON_ZERO;
+        d_fourier_Ey[index].y = -d_kv[j]*d_fourier_rho[index].y/k2/EPSILON_ZERO;
 
-        d_fourier_Ez[index].x = -d_kv[k]*d_fourier_rho[index].x/k2/epsilon_zero;
-        d_fourier_Ez[index].y = -d_kv[k]*d_fourier_rho[index].y/k2/epsilon_zero;
+        d_fourier_Ez[index].x = -d_kv[k]*d_fourier_rho[index].x/k2/EPSILON_ZERO;
+        d_fourier_Ez[index].y = -d_kv[k]*d_fourier_rho[index].y/k2/EPSILON_ZERO;
     }
 }
 
@@ -303,17 +306,17 @@ __device__ float gather_grid_to_particle(Particle *p, float *grid){
 }
 
 
-__global__ void InitParticleArrays(Particle *d_p){
+__global__ void InitParticleArrays(Particle *d_p, float shiftx, float shifty, float shiftz){
     int n = blockDim.x * blockIdx.x + threadIdx.x;
     if (n<N_particles){
         Particle *p = &(d_p[n]);
-        
+
         int i = n / (int)(N_particles_1_axis*N_particles_1_axis);
         int j = (int) (n/N_particles_1_axis) % N_particles_1_axis;
         int k = n % N_particles_1_axis;
-        p->x = L/float(N_particles_1_axis) * i;
-        p->y = L/float(N_particles_1_axis) * j;
-        p->z = L/float(N_particles_1_axis) * k;
+        p->x = L/float(N_particles_1_axis) * i + shiftx;
+        p->y = L/float(N_particles_1_axis) * j + shifty;
+        p->z = L/float(N_particles_1_axis) * k + shiftz;
 
         p->vx = 0.0f;
         p->vy = 0.0f;
@@ -358,11 +361,11 @@ __global__ void ParticleKernel(Particle *d_p, float q, float m, float *d_Ex, flo
 }
 
 
-void init_species(Species *s){
+void init_species(Species *s, float shiftx, float shifty, float shiftz){
     s->particles = new Particle[N_particles];
     CUDA_ERROR(cudaMalloc((void**)&(s->d_particles), sizeof(Particle)*N_particles));
     cout << "initializing particles" << endl;
-    InitParticleArrays<<<particleBlocks, particleThreads>>>(s->d_particles);
+    InitParticleArrays<<<particleBlocks, particleThreads>>>(s->d_particles, shiftx, shifty, shiftz);
 }
 
 void dump_density_data(Grid *g, char* name){
@@ -388,7 +391,7 @@ void dump_position_data(Species *s, char* name){
 }
 
 void init_timestep(Grid &g, Species &electrons,  Species &ions){
-    cudaMemset(&(g->d_rho), sizeof(float)*N_grid_all, 0);
+    CUDA_ERROR(cudaMemset(&(g->d_rho), sizeof(float)*N_grid_all, 0));
     scatter_charge(electrons->d_particles, electrons->q, g->d_rho);
     scatter_charge(ions->d_particles, ions->q, g->d_rho);
     field_solver(g);
@@ -403,7 +406,7 @@ void timestep(Grid &g, Species &electrons,  Species &ions){
 	ParticleKernel<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, ions->m, g->d_Ex, g->d_Ey, g->d_Ez);
 	//potential TODO: sort particles?????
     //2. clear charge density for scattering fields to particles charge
-    cudaMemset(&(g->d_rho), sizeof(float)*N_grid_all, 0);
+    CUDA_ERROR(cudaMemset(&(g->d_rho), sizeof(float)*N_grid_all, 0));
     //3. gather charge from new particle position to grid
     //TODO: note that I may need to cudaSyncThreads between these steps
     scatter_charge(electrons->d_particles, electrons->q, g->d_rho);
@@ -415,19 +418,18 @@ void timestep(Grid &g, Species &electrons,  Species &ions){
 int main(void){
     Grid g;
     init_grid(&g);
-    //TODO: routine checks for cuda status
 
     Species electrons;
-    electrons.q = -1.0f;
-    electrons.m = 1.0f;
+    electrons.q = -ELECTRON_CHARGE
+    electrons.m = ELECTRON_MASS
     electrons.N = N_particles;
-    init_species(&electrons);
+    init_species(&electrons, L/100.0f, 0, 0);
 
     Species ions;
-    ions.q = +1.0f;
-    ions.m = 10.0f;
+    ions.q = +ELECTRON_CHARGE
+    ions.m = PROTON_MASS
     ions.N = N_particles;
-    init_species(&ions);
+    init_species(&ions, 0, 0, 0);
 
     init_timestep(&g, &electrons, &ions);
 
