@@ -46,10 +46,12 @@ def scalar_field_plot(f, z):
     plt.imshow(f[:,:,z], vmin = minv, vmax=maxv, interpolation='nearest')
     plt.colorbar()
     plt.show()
-def particle__plot_onetime(f,skip_N):
-    x = f[:,0]
-    y = f[:,1]
-    z = f[:,2]
+def particle_plot_onetime(f,skip_N = 1):
+    x = f[::skip_N,0]
+    y = f[::skip_N,1]
+    z = f[::skip_N,2]
+    for i in x, y, z:
+        print(i.min(), i.max(), i.ptp(), i.std(), i.mean(), i.shape)
 
     fig1, (axes1, axes2, axes3) = plt.subplots(3)
     axes1.hist(x, bins=N_grid, linewidth=1)
@@ -59,8 +61,9 @@ def particle__plot_onetime(f,skip_N):
     axes3.hist(z, bins=N_grid, linewidth=1)
     axes2.set_xlabel("z")
 
-    fig2, axes_3d = plt.subplots(projection='3d')
-    axes_3d.plot(x,y,z,"go")
+    fig2 = plt.figure()
+    axes_3d = fig2.gca(projection='3d')
+    axes_3d.plot(x,y,z,"g,")
     plt.show()
 
 def particle_plot_trajectory(f):
@@ -79,11 +82,11 @@ if __name__=="__main__":
     with h5py.File(filename) as f:
         if args.name not in f:
             grp = f.create_group(args.name)
-            for dataset in ("init_density", "final_density"):
+            for dataset in ("initial_density", "final_density"):
                 filename = dataset + ".dat"
                 if os.path.isfile(filename):
                     grp[dataset] = np.loadtxt(filename).reshape((N_grid,N_grid,N_grid))
-            for dataset in ("trajectory", "init_position", "final_position"):
+            for dataset in ("electrons_positions", "final_electrons_positions", "ions_positions", "final_ions_positions"):
                 filename = dataset + ".dat"
                 if os.path.isfile(filename):
                     grp[dataset] = np.loadtxt(filename)
@@ -91,4 +94,7 @@ if __name__=="__main__":
             grp = f[args.name]
         for i in grp:
             print(i)
-        animate_scalar_field(grp['init_density'])
+        # animate_scalar_field(grp['initial_density'])
+        # animate_scalar_field(grp['final_density'])
+        particle_plot_onetime(grp['ions_positions'], 1)
+        particle_plot_onetime(grp['final_ions_positions'], 1)

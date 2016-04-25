@@ -15,7 +15,7 @@ using namespace std;
 #define L 1e-4
 #define dt 1e-11
 //TODO: THIS MAY HAVE TO BE CORRECTED
-#define NT 500
+#define NT 1
 #define N_grid 16
 #define N_grid_all (N_grid *N_grid * N_grid)
 #define dx (L/float(N_grid))
@@ -179,7 +179,7 @@ void init_grid(Grid *g){
 }
 
 
-__global__ set_grid_array_to_value(float *arr, float value)
+__global__ void set_grid_array_to_value(float *arr, float value){
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
@@ -199,34 +199,38 @@ void debug_field_solver_linear(Grid *g)
     float* linear_field_x = new float[N_grid_all];
     float* linear_field_y = new float[N_grid_all];
     float* linear_field_z = new float[N_grid_all];
-    for(int i = 0; i++; i<N_grid)
-        for(int j = 0; j++; j<N_grid)
-            for(int k = 0; k++; j<N_grid){
+    for(int i = 0; i<N_grid;  i++){
+        for(int j = 0; j<N_grid;  j++){
+            for(int k = 0; k<N_grid;  k++){
                 int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
                 linear_field_x[index] = dx*i;
                 linear_field_y[index] = dx*j;
                 linear_field_z[index] = dx*k;
             }
-    cudaMemcpy(d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+        }
+    }
+    cudaMemcpy(g->d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
 }
 void debug_field_solver_quadratic(Grid *g)
 {
     float* linear_field_x = new float[N_grid_all];
     float* linear_field_y = new float[N_grid_all];
     float* linear_field_z = new float[N_grid_all];
-    for(int i = 0; i++; i<N_grid)
-        for(int j = 0; j++; j<N_grid)
-            for(int k = 0; k++; j<N_grid){
+    for(int i = 0; i<N_grid;  i++){
+        for(int j = 0; j<N_grid;  j++){
+            for(int k = 0; k<N_grid;  k++){
                 int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
                 linear_field_x[index] = (dx*i)*(dx*i);
                 linear_field_y[index] = (dx*j)*(dx*j);
                 linear_field_z[index] = (dx*k)*(dx*k);
             }
-    cudaMemcpy(d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+        }
+    }
+    cudaMemcpy(g->d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
 }
 
 void field_solver(Grid *g){
@@ -376,6 +380,7 @@ void dump_density_data(Grid *g, char* name){
     {
         fprintf(density_data, "%f\n", g->rho[n]);
     }
+    free(g->rho);
 }
 
 void dump_position_data(Species *s, char* name){
@@ -388,19 +393,21 @@ void dump_position_data(Species *s, char* name){
         Particle *p = &(s->particles[i]);
         fprintf(initial_position_data, "%f %f %f\n", p->x, p->y, p->z);
     }
+    free(s->particles);
 }
 
-void init_timestep(Grid &g, Species &electrons,  Species &ions){
+void init_timestep(Grid *g, Species *electrons,  Species *ions){
     CUDA_ERROR(cudaMemset(&(g->d_rho), sizeof(float)*N_grid_all, 0));
-    scatter_charge(electrons->d_particles, electrons->q, g->d_rho);
-    scatter_charge(ions->d_particles, ions->q, g->d_rho);
-    field_solver(g);
+    scatter_charge<<<particleBlocks, particleThreads>>>(electrons->d_particles, electrons->q, g->d_rho);
+    scatter_charge<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, g->d_rho);
+    debug_field_solver_uniform(g);
+    // field_solver(g);
     InitialVelocityStep<<<particleBlocks, particleThreads>>>(electrons->d_particles, electrons->q, electrons->m, g->d_Ex, g->d_Ey, g->d_Ez);
     InitialVelocityStep<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, ions->m, g->d_Ex, g->d_Ey, g->d_Ez);
 }
 
 
-void timestep(Grid &g, Species &electrons,  Species &ions){
+void timestep(Grid *g, Species *electrons,  Species *ions){
 	//1. move particles, gather electric fields at their locations, accelerate particles
 	ParticleKernel<<<particleBlocks, particleThreads>>>(electrons->d_particles, electrons->q, electrons->m, g->d_Ex, g->d_Ey, g->d_Ez);
 	ParticleKernel<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, ions->m, g->d_Ex, g->d_Ey, g->d_Ez);
@@ -409,10 +416,11 @@ void timestep(Grid &g, Species &electrons,  Species &ions){
     CUDA_ERROR(cudaMemset(&(g->d_rho), sizeof(float)*N_grid_all, 0));
     //3. gather charge from new particle position to grid
     //TODO: note that I may need to cudaSyncThreads between these steps
-    scatter_charge(electrons->d_particles, electrons->q, g->d_rho);
-    scatter_charge(ions->d_particles, ions->q, g->d_rho);
+    scatter_charge<<<particleBlocks, particleThreads>>>(electrons->d_particles, electrons->q, g->d_rho);
+    scatter_charge<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, g->d_rho);
     //4. use charge density to calculate field
-    field_solver(g);
+    debug_field_solver_uniform(g);
+    // field_solver(g);
 }
 
 int main(void){
@@ -420,25 +428,31 @@ int main(void){
     init_grid(&g);
 
     Species electrons;
-    electrons.q = -ELECTRON_CHARGE
-    electrons.m = ELECTRON_MASS
+    electrons.q = -ELECTRON_CHARGE;
+    electrons.m = ELECTRON_MASS;
     electrons.N = N_particles;
     init_species(&electrons, L/100.0f, 0, 0);
 
     Species ions;
-    ions.q = +ELECTRON_CHARGE
-    ions.m = PROTON_MASS
+    ions.q = +ELECTRON_CHARGE;
+    ions.m = PROTON_MASS;
     ions.N = N_particles;
     init_species(&ions, 0, 0, 0);
 
     init_timestep(&g, &electrons, &ions);
 
-
+    dump_position_data(&ions, "ions_positions.dat");
+    dump_position_data(&electrons, "electrons_positions.dat.");
+    dump_density_data(&g, "initial_density.dat");
     cout << "entering time loop" << endl;
     for(int i =0; i<NT; i++){
         timestep(&g, &electrons, &ions);
     }
     cout << "finished time loop" << endl;
+
+    dump_position_data(&ions, "final_ions_positions.dat");
+    dump_position_data(&electrons, "final_electrons_positions.dat.");
+    dump_density_data(&g, "final_density.dat");
     CUDA_ERROR(cudaFree(electrons.d_particles));
     CUDA_ERROR(cudaFree(g.d_rho));
     CUDA_ERROR(cudaFree(g.d_Ex));
