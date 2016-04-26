@@ -13,7 +13,7 @@ using namespace std;
 #define N_particles_1_axis 71
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
 #define L 1e-4
-#define dt 1e-20
+#define dt 1e-24
 //TODO: THIS HERE TIMESTEP MAY HAVE TO BE CORRECTED
 #define NT 100
 #define N_grid 16
@@ -495,8 +495,8 @@ int main(void){
     init_timestep(&g, &electrons, &ions);
 
     CUDA_ERROR(cudaGetLastError());
-    dump_position_data(&ions, "ions_positions.dat");
-    dump_position_data(&electrons, "electrons_positions.dat");
+    // dump_position_data(&ions, "ions_positions.dat");
+    // dump_position_data(&electrons, "electrons_positions.dat");
     dump_density_data(&g, "initial_density.dat");
 
     cout << "entering time loop" << endl;
@@ -507,8 +507,8 @@ int main(void){
     printf("\n");
     cout << "finished time loop" << endl;
 
-    dump_position_data(&ions, "final_ions_positions.dat");
-    dump_position_data(&electrons, "final_electrons_positions.dat");
+    // dump_position_data(&ions, "final_ions_positions.dat");
+    // dump_position_data(&electrons, "final_electrons_positions.dat");
     dump_density_data(&g, "final_density.dat");
 
 
