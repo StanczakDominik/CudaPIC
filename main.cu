@@ -7,13 +7,13 @@ using namespace std;
 
 #define ELECTRON_MASS 9.10938356e-31
 #define PROTON_MASS 1.6726219e-27
-#define ELECTRON_CHARGE 1.6021765e-19
+#define ELECTRON_CHARGE 1
 #define EPSILON_ZERO 8.854e-12
 
 #define N_particles_1_axis 71
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
 #define L 1e-4
-#define dt 1e-11
+#define dt 1e-20
 //TODO: THIS HERE TIMESTEP MAY HAVE TO BE CORRECTED
 #define NT 100
 #define N_grid 16
@@ -93,7 +93,7 @@ __global__ void solve_poisson(float *d_kv, cufftComplex *d_fourier_rho, cufftCom
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
 
-    int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
+    int index = k*N_grid*N_grid + j*N_grid + i;
     if(i<N_grid && j<N_grid && k<N_grid){
         float k2 = d_kv[i]*d_kv[i] + d_kv[j]*d_kv[j] + d_kv[k]*d_kv[k];
         if (i==0 && j==0 && k ==0)    {
@@ -116,7 +116,7 @@ __global__ void real2complex(float *input, cufftComplex *output){
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
-    int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
+    int index = k*N_grid*N_grid + j*N_grid + i;
 
     if(i<N_grid && j<N_grid && k<N_grid)    {
         output[index].x = input[index];
@@ -127,7 +127,7 @@ __global__ void complex2real(cufftComplex *input, float *output){
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
-    int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
+    int index = k*N_grid*N_grid + j*N_grid + i;
 
     if(i<N_grid && j<N_grid && k<N_grid){
         output[index] = input[index].x/float(N_grid_all);
@@ -138,7 +138,7 @@ __global__ void scale_down_after_fft(float *d_Ex, float *d_Ey, float *d_Ez){
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
-    int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
+    int index = k*N_grid*N_grid + j*N_grid + i;
 
     if(i<N_grid && j<N_grid && k<N_grid){
         d_Ex[index] /= float(N_grid_all);
@@ -151,9 +151,9 @@ __global__ void set_grid_array_to_value(float *arr, float value){
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
-    int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
+    int index = k*N_grid*N_grid + j*N_grid + i;
 
-    if(i<N_grid && j<N_grid && k<N_grid){
+    if((i<N_grid) && (j<N_grid) && (k<N_grid)){
         arr[index] = value;
     }
 }
@@ -203,7 +203,7 @@ void debug_field_solver_uniform(Grid *g){
         for(int j = 0; j<N_grid;  j++){
             for(int k = 0; k<N_grid;  k++){
                 int index = i*N_grid*N_grid + j*N_grid + k;
-                linear_field_x[index] = 10000000;
+                linear_field_x[index] = 1000;
                 linear_field_y[index] = 0;
                 linear_field_z[index] = 0;
                 // printf("%d %f %f %f\n", index, linear_field_x[index], linear_field_y[index],linear_field_z[index]);
@@ -215,7 +215,7 @@ void debug_field_solver_uniform(Grid *g){
     cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
     cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
 }
-void debug_field_solver_linear(Grid *g)
+void debug_field_solver_sine(Grid *g)
 {
     float* linear_field_x = new float[N_grid_all];
     float* linear_field_y = new float[N_grid_all];
@@ -224,9 +224,9 @@ void debug_field_solver_linear(Grid *g)
         for(int j = 0; j<N_grid;  j++){
             for(int k = 0; k<N_grid;  k++){
                 int index = i*N_grid*N_grid + j*N_grid + k;
-                linear_field_x[index] = 10000*sin(2*M_PI*((float)k/(float)N_grid));
-                linear_field_y[index] = 10000*sin(2*M_PI*((float)j/(float)N_grid));
-                linear_field_z[index] = 10000*sin(2*M_PI*((float)i/(float)N_grid));
+                linear_field_x[index] = 1000*sin(2*M_PI*((float)k/(float)N_grid));
+                linear_field_y[index] = 1000*sin(2*M_PI*((float)j/(float)N_grid));
+                linear_field_z[index] = 1000*sin(2*M_PI*((float)i/(float)N_grid));
             }
         }
     }
@@ -256,13 +256,15 @@ void debug_field_solver_linear(Grid *g)
 
 void field_solver(Grid *g){
     cufftExecR2C(g->plan_forward, g->d_rho, g->d_fourier_rho);
-
+    CUDA_ERROR(cudaDeviceSynchronize());
     solve_poisson<<<gridBlocks, gridThreads>>>(g->d_kv, g->d_fourier_rho, g->d_fourier_Ex, g->d_fourier_Ey, g->d_fourier_Ez);
+    CUDA_ERROR(cudaDeviceSynchronize());
     cufftExecC2R(g->plan_backward, g->d_fourier_Ex, g->d_Ex);
     cufftExecC2R(g->plan_backward, g->d_fourier_Ey, g->d_Ey);
     cufftExecC2R(g->plan_backward, g->d_fourier_Ez, g->d_Ez);
 
     scale_down_after_fft<<<gridBlocks, gridThreads>>>(g->d_Ex, g->d_Ey, g->d_Ez);
+    CUDA_ERROR(cudaDeviceSynchronize());
 }
 
 __device__ int position_to_grid_index(float X){
@@ -410,11 +412,14 @@ void dump_density_data(Grid *g, char* name){
     CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
     CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
     FILE *density_data = fopen(name, "w");
+    float rho_total = 0.0f;
     for (int n = 0; n < N_grid_all; n++)
     {
         fprintf(density_data, "%f %f %f %f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
         printf("%d %f %f %f %f\n", n, g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
+        rho_total += g->rho[n];
     }
+    printf("rho total: %f\n", rho_total);
 }
 
 void dump_position_data(Species *s, char* name){
@@ -438,8 +443,8 @@ void init_timestep(Grid *g, Species *electrons,  Species *ions){
     scatter_charge<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, g->d_rho);
     CUDA_ERROR(cudaDeviceSynchronize());
 
-    debug_field_solver_linear(g);
-    // field_solver(g);
+    // debug_field_solver_sine(g);
+    field_solver(g);
     CUDA_ERROR(cudaDeviceSynchronize());
 
     InitialVelocityStep<<<particleBlocks, particleThreads>>>(electrons->d_particles, electrons->q, electrons->m, g->d_Ex, g->d_Ey, g->d_Ez);
@@ -466,9 +471,9 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
     CUDA_ERROR(cudaDeviceSynchronize());
 
     //4. use charge density to calculate field
-    debug_field_solver_linear(g);
-    // field_solver(g);
-    CUDA_ERROR(cudaDeviceSynchronize());
+    // debug_field_solver_sine(g);
+    field_solver(g);
+    // CUDA_ERROR(cudaDeviceSynchronize());
 }
 
 int main(void){

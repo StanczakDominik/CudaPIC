@@ -16,7 +16,7 @@ args = parser.parse_args()
 N_grid = 16
 dx = 1/(N_grid-1)
 
-def animate_scalar_field(f):
+def animate_scalar_field(f, save=False):
     scalar_field = f[...].reshape((N_grid,N_grid,N_grid))
     fig, axes = plt.subplots()
     IM = axes.imshow(scalar_field[:,:,0], origin='upper', interpolation='nearest', vmin=np.min(scalar_field), vmax=np.max(scalar_field), extent=(0,N_grid*dx, 0, N_grid*dx))
@@ -36,8 +36,8 @@ def animate_scalar_field(f):
 
     fig.colorbar(IM, orientation="vertical")
     anim = ani.FuncAnimation(fig, animate, interval=200, frames=N_grid, blit=True, init_func=init)
-    # if save:
-    #     anim.save("grafika/animation_scalar_field.mp4", fps=30, extra_args=['-vcodec', 'libx264'])
+    if save:
+        anim.save("grafika/animation_scalar_field.mp4", fps=30, extra_args=['-vcodec', 'libx264'])
     plt.show()
 
 def particle_plot_onetime(f,skip_N = 1):
