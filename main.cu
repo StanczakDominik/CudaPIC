@@ -10,7 +10,7 @@ using namespace std;
 #define ELECTRON_CHARGE 1.6021765e-19
 #define EPSILON_ZERO 8.854e-12
 
-#define N_particles_1_axis 128 //should be maybe connected to threadsPerBlock somehow
+#define N_particles_1_axis 64 //should be maybe connected to threadsPerBlock somehow
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis) //does this compile with const? //2^4^3 = 2^7 = 128
 #define L 1e-4
 #define dt 1e-11
@@ -32,7 +32,7 @@ L = 1
 */
 
 
-dim3 particleThreads(64);
+dim3 particleThreads(32);
 dim3 particleBlocks(N_particles/particleThreads.x);
 dim3 gridThreads(16,16,16);
 dim3 gridBlocks(N_grid/gridThreads.x, N_grid/gridThreads.y, N_grid/gridThreads.z);
@@ -146,6 +146,18 @@ __global__ void scale_down_after_fft(float *d_Ex, float *d_Ey, float *d_Ez){
         d_Ez[index] /= float(N_grid_all);
     }
 }
+
+__global__ void set_grid_array_to_value(float *arr, float value){
+    int i = blockIdx.x*blockDim.x + threadIdx.x;
+    int j = blockIdx.y*blockDim.y + threadIdx.y;
+    int k = blockIdx.z*blockDim.z + threadIdx.z;
+    int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
+
+    if(i<N_grid && j<N_grid && k<N_grid){
+        arr[index] = value;
+    }
+}
+
 void init_grid(Grid *g){
     g->rho = new float[N_grid_all];
     g->Ex = new float[N_grid_all];
@@ -171,28 +183,35 @@ void init_grid(Grid *g){
     CUDA_ERROR(cudaMalloc((void**)&(g->d_fourier_Ey), sizeof(cufftComplex)*N_grid_all));
     CUDA_ERROR(cudaMalloc((void**)&(g->d_fourier_Ez), sizeof(cufftComplex)*N_grid_all));
     CUDA_ERROR(cudaMalloc((void**)&(g->d_rho), sizeof(float)*N_grid_all));
+    CUDA_ERROR(cudaMemcpy(g->d_rho, g->rho, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice));
     CUDA_ERROR(cudaMalloc((void**)&(g->d_Ex), sizeof(float)*N_grid_all));
+    CUDA_ERROR(cudaMemcpy(g->d_Ex, g->Ex, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice));
     CUDA_ERROR(cudaMalloc((void**)&(g->d_Ey), sizeof(float)*N_grid_all));
+    CUDA_ERROR(cudaMemcpy(g->d_Ey, g->Ey, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice));
     CUDA_ERROR(cudaMalloc((void**)&(g->d_Ez), sizeof(float)*N_grid_all));
+    CUDA_ERROR(cudaMemcpy(g->d_Ez, g->Ez, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice));
     cufftPlan3d(&(g->plan_forward), N_grid, N_grid, N_grid, CUFFT_R2C);
     cufftPlan3d(&(g->plan_backward), N_grid, N_grid, N_grid, CUFFT_C2R);
 }
 
 
-__global__ void set_grid_array_to_value(float *arr, float value){
-    int i = blockIdx.x*blockDim.x + threadIdx.x;
-    int j = blockIdx.y*blockDim.y + threadIdx.y;
-    int k = blockIdx.z*blockDim.z + threadIdx.z;
-    int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
-
-    if(i<N_grid && j<N_grid && k<N_grid){
-        arr[index] = value;
-    }
-}
 void debug_field_solver_uniform(Grid *g){
-    set_grid_array_to_value<<<gridBlocks, gridThreads>>>(g->d_Ex, 1.0f);
-    set_grid_array_to_value<<<gridBlocks, gridThreads>>>(g->d_Ey, 0.0f);
-    set_grid_array_to_value<<<gridBlocks, gridThreads>>>(g->d_Ez, 0.0f);
+    float* linear_field_x = new float[N_grid_all];
+    float* linear_field_y = new float[N_grid_all];
+    float* linear_field_z = new float[N_grid_all];
+    for(int i = 0; i<N_grid;  i++){
+        for(int j = 0; j<N_grid;  j++){
+            for(int k = 0; k<N_grid;  k++){
+                int index = k*N_grid*N_grid + j*N_grid + i;
+                linear_field_x[index] = 1;
+                linear_field_y[index] = 0;
+                linear_field_z[index] = 0;
+            }
+        }
+    }
+    cudaMemcpy(g->d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
 }
 void debug_field_solver_linear(Grid *g)
 {
@@ -202,7 +221,7 @@ void debug_field_solver_linear(Grid *g)
     for(int i = 0; i<N_grid;  i++){
         for(int j = 0; j<N_grid;  j++){
             for(int k = 0; k<N_grid;  k++){
-                int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
+                int index = k*N_grid*N_grid + j*N_grid + i;
                 linear_field_x[index] = dx*i;
                 linear_field_y[index] = dx*j;
                 linear_field_z[index] = dx*k;
@@ -221,7 +240,7 @@ void debug_field_solver_quadratic(Grid *g)
     for(int i = 0; i<N_grid;  i++){
         for(int j = 0; j<N_grid;  j++){
             for(int k = 0; k<N_grid;  k++){
-                int index = k*N_grid*N_grid + j*N_grid + i*N_grid;
+                int index = k*N_grid*N_grid + j*N_grid + i;
                 linear_field_x[index] = (dx*i)*(dx*i);
                 linear_field_y[index] = (dx*j)*(dx*j);
                 linear_field_z[index] = (dx*k)*(dx*k);
@@ -319,8 +338,11 @@ __global__ void InitParticleArrays(Particle *d_p, float shiftx, float shifty, fl
         int j = (int) (n/N_particles_1_axis) % N_particles_1_axis;
         int k = n % N_particles_1_axis;
         p->x = L/float(N_particles_1_axis) * i + shiftx;
+        p->x = p->x - floor(p->x/L)*L;
         p->y = L/float(N_particles_1_axis) * j + shifty;
+        p->y = p->y - floor(p->y/L)*L;
         p->z = L/float(N_particles_1_axis) * k + shiftz;
+        p->z = p->z - floor(p->z/L)*L;
 
         p->vx = 0.0f;
         p->vy = 0.0f;
@@ -349,18 +371,25 @@ __global__ void ParticleKernel(Particle *d_p, float q, float m, float *d_Ex, flo
    {
        Particle *p = &(d_p[n]);
        //push positions, enforce periodic boundary conditions
-       p->x = fmod((p->x + p->vx*dt),L);
-       p->x = fmod((p->y + p->vy*dt),L);
-       p->x = fmod((p->z + p->vz*dt),L);
+
+       p->x = p->x + p->vx*dt;
+       p->x = p->x - floor(p->x/L)*L;
+
+       p->y = p->y + p->vy*dt;
+       p->y = p->y - floor(p->y/L)*L;
+
+       p->z = p->z + p->vz*dt;
+       p->z = p->z - floor(p->z/L)*L;
+
        //gather electric field
        float Ex = gather_grid_to_particle(p, d_Ex);
        float Ey = gather_grid_to_particle(p, d_Ey);
        float Ez = gather_grid_to_particle(p, d_Ez);
 
        //use electric field to accelerate particles
-       p->vx -= 0.5f*dt*q/m*Ex;
-       p->vy -= 0.5f*dt*q/m*Ey;
-       p->vz -= 0.5f*dt*q/m*Ez;
+       p->vx += dt*q/m*Ex;
+       p->vy += dt*q/m*Ey;
+       p->vz += dt*q/m*Ez;
    }
 }
 
@@ -375,12 +404,19 @@ void init_species(Species *s, float shiftx, float shifty, float shiftz){
 void dump_density_data(Grid *g, char* name){
     cout << "dumping" << endl;
     CUDA_ERROR(cudaMemcpy(g->rho, g->d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ex, g->d_Ex, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
     FILE *density_data = fopen(name, "w");
     for (int n = 0; n < N_grid_all; n++)
     {
-        fprintf(density_data, "%f\n", g->rho[n]);
+        fprintf(density_data, "%f %f %f %f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
     }
-    free(g->rho);
+    for(int n = 0; n < 10; n++)
+    {
+        printf("%f %f %f %f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
+    }
+    // free(g->rho);
 }
 
 void dump_position_data(Species *s, char* name){
@@ -391,19 +427,25 @@ void dump_position_data(Species *s, char* name){
     for (int i =0; i<N_particles; i++)
     {
         Particle *p = &(s->particles[i]);
-        fprintf(initial_position_data, "%f %f %f\n", p->x, p->y, p->z);
+        fprintf(initial_position_data, "%f %f %f %f %f %f\n", p->x, p->y, p->z, p->vx, p->vy, p->vz);
     }
-    free(s->particles);
+    // free(s->particles);
 }
 
 void init_timestep(Grid *g, Species *electrons,  Species *ions){
-    CUDA_ERROR(cudaMemset(&(g->d_rho), sizeof(float)*N_grid_all, 0));
+    set_grid_array_to_value<<<gridBlocks, gridThreads>>>(g->d_rho, 0);
+    CUDA_ERROR(cudaDeviceSynchronize());
     scatter_charge<<<particleBlocks, particleThreads>>>(electrons->d_particles, electrons->q, g->d_rho);
     scatter_charge<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, g->d_rho);
+    CUDA_ERROR(cudaDeviceSynchronize());
+
     debug_field_solver_uniform(g);
     // field_solver(g);
+    CUDA_ERROR(cudaDeviceSynchronize());
+
     InitialVelocityStep<<<particleBlocks, particleThreads>>>(electrons->d_particles, electrons->q, electrons->m, g->d_Ex, g->d_Ey, g->d_Ez);
     InitialVelocityStep<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, ions->m, g->d_Ex, g->d_Ey, g->d_Ez);
+    CUDA_ERROR(cudaDeviceSynchronize());
 }
 
 
@@ -413,19 +455,26 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
 	ParticleKernel<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, ions->m, g->d_Ex, g->d_Ey, g->d_Ez);
 	//potential TODO: sort particles?????
     //2. clear charge density for scattering fields to particles charge
-    CUDA_ERROR(cudaMemset(&(g->d_rho), sizeof(float)*N_grid_all, 0));
+    set_grid_array_to_value<<<gridBlocks, gridThreads>>>(g->d_rho, 0);
+    CUDA_ERROR(cudaDeviceSynchronize());
+
+
     //3. gather charge from new particle position to grid
     //TODO: note that I may need to cudaSyncThreads between these steps
     scatter_charge<<<particleBlocks, particleThreads>>>(electrons->d_particles, electrons->q, g->d_rho);
     scatter_charge<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, g->d_rho);
+    CUDA_ERROR(cudaDeviceSynchronize());
+
     //4. use charge density to calculate field
     debug_field_solver_uniform(g);
     // field_solver(g);
+    CUDA_ERROR(cudaDeviceSynchronize());
 }
 
 int main(void){
     Grid g;
     init_grid(&g);
+    dump_density_data(&g, "initial_density.dat");
 
     Species electrons;
     electrons.q = -ELECTRON_CHARGE;
