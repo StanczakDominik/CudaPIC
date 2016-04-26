@@ -10,12 +10,12 @@ using namespace std;
 #define ELECTRON_CHARGE 1.6021765e-19
 #define EPSILON_ZERO 8.854e-12
 
-#define N_particles_1_axis 64 //should be maybe connected to threadsPerBlock somehow
-#define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis) //does this compile with const? //2^4^3 = 2^7 = 128
+#define N_particles_1_axis 71
+#define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
 #define L 1e-4
 #define dt 1e-11
-//TODO: THIS MAY HAVE TO BE CORRECTED
-#define NT 1
+//TODO: THIS HERE TIMESTEP MAY HAVE TO BE CORRECTED
+#define NT 100
 #define N_grid 16
 #define N_grid_all (N_grid *N_grid * N_grid)
 #define dx (L/float(N_grid))
@@ -32,9 +32,9 @@ L = 1
 */
 
 
-dim3 particleThreads(32);
+dim3 particleThreads(N_particles_1_axis);
 dim3 particleBlocks(N_particles/particleThreads.x);
-dim3 gridThreads(16,16,16);
+dim3 gridThreads(N_grid/2,N_grid/2,N_grid/2);
 dim3 gridBlocks(N_grid/gridThreads.x, N_grid/gridThreads.y, N_grid/gridThreads.z);
 static void CUDA_ERROR( cudaError_t err)
 {
@@ -202,13 +202,15 @@ void debug_field_solver_uniform(Grid *g){
     for(int i = 0; i<N_grid;  i++){
         for(int j = 0; j<N_grid;  j++){
             for(int k = 0; k<N_grid;  k++){
-                int index = k*N_grid*N_grid + j*N_grid + i;
-                linear_field_x[index] = 1;
+                int index = i*N_grid*N_grid + j*N_grid + k;
+                linear_field_x[index] = 10000000;
                 linear_field_y[index] = 0;
                 linear_field_z[index] = 0;
+                // printf("%d %f %f %f\n", index, linear_field_x[index], linear_field_y[index],linear_field_z[index]);
             }
         }
     }
+    // cout << "if happy and know it clap your hands" << endl;
     cudaMemcpy(g->d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
     cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
     cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
@@ -221,10 +223,10 @@ void debug_field_solver_linear(Grid *g)
     for(int i = 0; i<N_grid;  i++){
         for(int j = 0; j<N_grid;  j++){
             for(int k = 0; k<N_grid;  k++){
-                int index = k*N_grid*N_grid + j*N_grid + i;
-                linear_field_x[index] = dx*i;
-                linear_field_y[index] = dx*j;
-                linear_field_z[index] = dx*k;
+                int index = i*N_grid*N_grid + j*N_grid + k;
+                linear_field_x[index] = 10000*sin(2*M_PI*((float)k/(float)N_grid));
+                linear_field_y[index] = 10000*sin(2*M_PI*((float)j/(float)N_grid));
+                linear_field_z[index] = 10000*sin(2*M_PI*((float)i/(float)N_grid));
             }
         }
     }
@@ -232,25 +234,25 @@ void debug_field_solver_linear(Grid *g)
     cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
     cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
 }
-void debug_field_solver_quadratic(Grid *g)
-{
-    float* linear_field_x = new float[N_grid_all];
-    float* linear_field_y = new float[N_grid_all];
-    float* linear_field_z = new float[N_grid_all];
-    for(int i = 0; i<N_grid;  i++){
-        for(int j = 0; j<N_grid;  j++){
-            for(int k = 0; k<N_grid;  k++){
-                int index = k*N_grid*N_grid + j*N_grid + i;
-                linear_field_x[index] = (dx*i)*(dx*i);
-                linear_field_y[index] = (dx*j)*(dx*j);
-                linear_field_z[index] = (dx*k)*(dx*k);
-            }
-        }
-    }
-    cudaMemcpy(g->d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-    cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-    cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-}
+// void debug_field_solver_quadratic(Grid *g)
+// {
+//     float* linear_field_x = new float[N_grid_all];
+//     float* linear_field_y = new float[N_grid_all];
+//     float* linear_field_z = new float[N_grid_all];
+//     for(int i = 0; i<N_grid;  i++){
+//         for(int j = 0; j<N_grid;  j++){
+//             for(int k = 0; k<N_grid;  k++){
+//                 int index = i*N_grid*N_grid + j*N_grid + k;
+//                 linear_field_x[index] = (dx*i)*(dx*i);
+//                 linear_field_y[index] = (dx*j)*(dx*j);
+//                 linear_field_z[index] = (dx*k)*(dx*k);
+//             }
+//         }
+//     }
+//     cudaMemcpy(g->d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+//     cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+//     cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+// }
 
 void field_solver(Grid *g){
     cufftExecR2C(g->plan_forward, g->d_rho, g->d_fourier_rho);
@@ -290,14 +292,14 @@ __global__ void scatter_charge(Particle *d_P, float q, float* d_rho){
 
     //this part is literally hitler - not just unreadable but slow af
     //TODO: redo this using a reduce, maybe?
-    atomicAdd(&(d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]), q*Xl*Yl*Zl);
-    atomicAdd(&(d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]), q*Xr*Yl*Zl);
-    atomicAdd(&(d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]), q*Xl*Yr*Zl);
-    atomicAdd(&(d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]), q*Xl*Yl*Zr);
-    atomicAdd(&(d_rho[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]), q*Xr*Yr*Zl);
-    atomicAdd(&(d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]), q*Xr*Yl*Zr);
-    atomicAdd(&(d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]), q*Xl*Yr*Zr);
-    atomicAdd(&(d_rho[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]), q*Xr*Yr*Zr);
+    atomicAdd(&(d_rho[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j)%N_grid) + ((i)%N_grid)]), q*Xl*Yl*Zl);
+    atomicAdd(&(d_rho[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j)%N_grid) + ((i+1)%N_grid)]), q*Xr*Yl*Zl);
+    atomicAdd(&(d_rho[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j+1)%N_grid) + ((i)%N_grid)]), q*Xl*Yr*Zl);
+    atomicAdd(&(d_rho[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j)%N_grid) + ((i)%N_grid)]), q*Xl*Yl*Zr);
+    atomicAdd(&(d_rho[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j+1)%N_grid) + ((i+1)%N_grid)]), q*Xr*Yr*Zl);
+    atomicAdd(&(d_rho[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j)%N_grid) + ((i+1)%N_grid)]), q*Xr*Yl*Zr);
+    atomicAdd(&(d_rho[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j+1)%N_grid) + ((i)%N_grid)]), q*Xl*Yr*Zr);
+    atomicAdd(&(d_rho[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j+1)%N_grid) + ((i+1)%N_grid)]), q*Xr*Yr*Zr);
 }
 __device__ float gather_grid_to_particle(Particle *p, float *grid){
     float x = p->x;
@@ -316,14 +318,14 @@ __device__ float gather_grid_to_particle(Particle *p, float *grid){
 
     float interpolated_scalar = 0.0f;
     //this part is also hitler but not as much
-    interpolated_scalar += grid[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]*Xl*Yl*Zl;
-    interpolated_scalar += grid[N_grid * N_grid * (k)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]*Xr*Yl*Zl;
-    interpolated_scalar += grid[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]*Xl*Yr*Zl;
-    interpolated_scalar += grid[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i)%N_grid]*Xl*Yl*Zr;
-    interpolated_scalar += grid[N_grid * N_grid * (k)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]*Xr*Yr*Zl;
-    interpolated_scalar += grid[N_grid * N_grid * (k+1)%N_grid + N_grid * (j)%N_grid + (i+1)%N_grid]*Xr*Yl*Zr;
-    interpolated_scalar += grid[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i)%N_grid]*Xl*Yr*Zr;
-    interpolated_scalar += grid[N_grid * N_grid * (k+1)%N_grid + N_grid * (j+1)%N_grid + (i+1)%N_grid]*Xr*Yr*Zr;
+    interpolated_scalar += grid[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j)%N_grid) + ((i)%N_grid)]*Xl*Yl*Zl;
+    interpolated_scalar += grid[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j)%N_grid) + ((i+1)%N_grid)]*Xr*Yl*Zl;
+    interpolated_scalar += grid[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j+1)%N_grid) + ((i)%N_grid)]*Xl*Yr*Zl;
+    interpolated_scalar += grid[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j)%N_grid) + ((i)%N_grid)]*Xl*Yl*Zr;
+    interpolated_scalar += grid[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j+1)%N_grid) + ((i+1)%N_grid)]*Xr*Yr*Zl;
+    interpolated_scalar += grid[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j)%N_grid) + ((i+1)%N_grid)]*Xr*Yl*Zr;
+    interpolated_scalar += grid[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j+1)%N_grid) + ((i)%N_grid)]*Xl*Yr*Zr;
+    interpolated_scalar += grid[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j+1)%N_grid) + ((i+1)%N_grid)]*Xr*Yr*Zr;
     return interpolated_scalar;
 
 }
@@ -411,12 +413,8 @@ void dump_density_data(Grid *g, char* name){
     for (int n = 0; n < N_grid_all; n++)
     {
         fprintf(density_data, "%f %f %f %f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
+        printf("%d %f %f %f %f\n", n, g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
     }
-    for(int n = 0; n < 10; n++)
-    {
-        printf("%f %f %f %f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
-    }
-    // free(g->rho);
 }
 
 void dump_position_data(Species *s, char* name){
@@ -436,10 +434,11 @@ void init_timestep(Grid *g, Species *electrons,  Species *ions){
     set_grid_array_to_value<<<gridBlocks, gridThreads>>>(g->d_rho, 0);
     CUDA_ERROR(cudaDeviceSynchronize());
     scatter_charge<<<particleBlocks, particleThreads>>>(electrons->d_particles, electrons->q, g->d_rho);
+    CUDA_ERROR(cudaDeviceSynchronize());
     scatter_charge<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, g->d_rho);
     CUDA_ERROR(cudaDeviceSynchronize());
 
-    debug_field_solver_uniform(g);
+    debug_field_solver_linear(g);
     // field_solver(g);
     CUDA_ERROR(cudaDeviceSynchronize());
 
@@ -462,11 +461,12 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
     //3. gather charge from new particle position to grid
     //TODO: note that I may need to cudaSyncThreads between these steps
     scatter_charge<<<particleBlocks, particleThreads>>>(electrons->d_particles, electrons->q, g->d_rho);
+    CUDA_ERROR(cudaDeviceSynchronize());
     scatter_charge<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, g->d_rho);
     CUDA_ERROR(cudaDeviceSynchronize());
 
     //4. use charge density to calculate field
-    debug_field_solver_uniform(g);
+    debug_field_solver_linear(g);
     // field_solver(g);
     CUDA_ERROR(cudaDeviceSynchronize());
 }
@@ -474,7 +474,6 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
 int main(void){
     Grid g;
     init_grid(&g);
-    dump_density_data(&g, "initial_density.dat");
 
     Species electrons;
     electrons.q = -ELECTRON_CHARGE;
@@ -490,18 +489,24 @@ int main(void){
 
     init_timestep(&g, &electrons, &ions);
 
+    CUDA_ERROR(cudaGetLastError());
     dump_position_data(&ions, "ions_positions.dat");
-    dump_position_data(&electrons, "electrons_positions.dat.");
+    dump_position_data(&electrons, "electrons_positions.dat");
     dump_density_data(&g, "initial_density.dat");
+
     cout << "entering time loop" << endl;
     for(int i =0; i<NT; i++){
         timestep(&g, &electrons, &ions);
+        printf("Iteration %d\r", i);
     }
+    printf("\n");
     cout << "finished time loop" << endl;
 
     dump_position_data(&ions, "final_ions_positions.dat");
-    dump_position_data(&electrons, "final_electrons_positions.dat.");
+    dump_position_data(&electrons, "final_electrons_positions.dat");
     dump_density_data(&g, "final_density.dat");
+
+
     CUDA_ERROR(cudaFree(electrons.d_particles));
     CUDA_ERROR(cudaFree(g.d_rho));
     CUDA_ERROR(cudaFree(g.d_Ex));

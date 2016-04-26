@@ -85,9 +85,10 @@ if __name__=="__main__":
         for i in grp:
             print(i)
         animate_scalar_field(grp['initial_density'][:,0])
-        animate_scalar_field(grp['initial_density'][:,1])
-        animate_scalar_field(grp['initial_density'][:,2])
-        animate_scalar_field(grp['initial_density'][:,3])
+        animate_scalar_field(grp['final_density'][:,0])
+
+        particle_plot_onetime(grp['electrons_positions'], 1)
+        particle_plot_onetime(grp['final_electrons_positions'], 1)
 
         particle_plot_onetime(grp['ions_positions'], 1)
         particle_plot_onetime(grp['final_ions_positions'], 1)
