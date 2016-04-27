@@ -8,46 +8,36 @@ using namespace std;
 #define ELECTRON_MASS 9.10938356e-31
 #define PROTON_MASS 1.6726219e-27
 #define ELECTRON_CHARGE 1
+// NOTE: setting electron charge to the default SI 1.6e-19 value breaks interpolation 
 #define EPSILON_ZERO 8.854e-12
 
 #define N_particles_1_axis 71
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
 #define L 1e-4
 #define dt 1e-24
-//TODO: THIS HERE TIMESTEP MAY HAVE TO BE CORRECTED
+//TODO: THIS HERE TIMESTEP I AM NOT COMPLETELY CERTAIN ABOUT
 #define NT 100
 #define N_grid 16
 #define N_grid_all (N_grid *N_grid * N_grid)
 #define dx (L/float(N_grid))
 #define dy dx
 #define dz dx
-size_t particle_array_size = N_particles*sizeof(float);
-// size_t grid_array_size = N_grid*sizeof(float);
-
-/*
-Assumptions:
-q=1
-m=1
-L = 1
-*/
 
 
 dim3 particleThreads(N_particles_1_axis);
 dim3 particleBlocks(N_particles/particleThreads.x);
 dim3 gridThreads(N_grid/2,N_grid/2,N_grid/2);
 dim3 gridBlocks(N_grid/gridThreads.x, N_grid/gridThreads.y, N_grid/gridThreads.z);
-static void CUDA_ERROR( cudaError_t err)
-{
+
+static void CUDA_ERROR( cudaError_t err){
     if (err != cudaSuccess) {
         printf("CUDA ERROR: %s, exiting\n", cudaGetErrorString(err));
         exit(-1);
     }
 }
-struct Grid{
-    // int N_grid;
-    // int N_grid_all;
-    // float dx;
 
+
+struct Grid{
     float *rho;
     float *Ex;
     float *Ey;
@@ -57,20 +47,24 @@ struct Grid{
     float *d_Ex;
     float *d_Ey;
     float *d_Ez;
+
     //fourier transformed versions of grid quantities, for fields solver
     cufftComplex *d_fourier_rho;
     cufftComplex *d_fourier_Ex;
     cufftComplex *d_fourier_Ey;
     cufftComplex *d_fourier_Ez;
 
+    //instructions for cuFFT
     cufftHandle plan_forward;
     cufftHandle plan_backward;
 
+    //the wave vector, for the field solver
     float *kv;
-    float *d_kv; //wave vector for field solver
+    float *d_kv;
 };
 
 struct Particle{
+    //keeps information about the position of one particle in (6D) phase space (positions, velocities)
     float x;
     float y;
     float z;
@@ -80,8 +74,11 @@ struct Particle{
 };
 
 struct Species{
-    float m;
-    float q;
+    //keeps information about one distinct group of particles
+    float m; //mass
+    float q; //charge
+
+    //number of particles in group: not fully used yet
     long int N;
 
     Particle *particles;
@@ -89,18 +86,23 @@ struct Species{
 };
 
 __global__ void solve_poisson(float *d_kv, cufftComplex *d_fourier_rho, cufftComplex *d_fourier_Ex, cufftComplex *d_fourier_Ey, cufftComplex *d_fourier_Ez){
+    /*solve poisson equation
+    d_kv: wave vector
+    d_fourier_rho: complex array of fourier transformed charge densities
+    d_fourier_E(i):v
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
 
     int index = k*N_grid*N_grid + j*N_grid + i;
     if(i<N_grid && j<N_grid && k<N_grid){
+	//wave vector magnitude squared
         float k2 = d_kv[i]*d_kv[i] + d_kv[j]*d_kv[j] + d_kv[k]*d_kv[k];
         if (i==0 && j==0 && k ==0)    {
-            k2 = 1.0f;
+            k2 = 1.0f; //dodge a bullet with a division by zero
         }
 
-        //see: birdsall langdon page 19
+        //see: Birdsall Langdon, Plasma Physics via Computer Simulation, page 19
         d_fourier_Ex[index].x = -d_kv[i]*d_fourier_rho[index].x/k2/EPSILON_ZERO;
         d_fourier_Ex[index].y = -d_kv[i]*d_fourier_rho[index].y/k2/EPSILON_ZERO;
 
@@ -113,6 +115,7 @@ __global__ void solve_poisson(float *d_kv, cufftComplex *d_fourier_rho, cufftCom
 }
 
 __global__ void real2complex(float *input, cufftComplex *output){
+    //converts array of floats to array of real complex numbers
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
@@ -124,6 +127,7 @@ __global__ void real2complex(float *input, cufftComplex *output){
     }
 }
 __global__ void complex2real(cufftComplex *input, float *output){
+    //converts array of complex inputs to floats (discards)
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
