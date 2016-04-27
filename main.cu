@@ -427,6 +427,18 @@ void dump_density_data(Grid *g, char* name){
     printf("rho total: %f\n", rho_total);
 }
 
+void dump_running_density_data(Grid *g, char* name){
+    CUDA_ERROR(cudaMemcpy(g->rho, g->d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ex, g->d_Ex, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    FILE *density_data = fopen(name, "a");
+    for (int n = 0; n < N_grid_all; n++)
+    {
+        fprintf(density_data, "%f %f %f %f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
+    }
+}
+
 void dump_position_data(Species *s, char* name){
     cout << "Copying particles from GPU to device"<< endl;
     CUDA_ERROR(cudaMemcpy(s->particles, s->d_particles, sizeof(Particle)*N_particles, cudaMemcpyDeviceToHost));
@@ -506,6 +518,7 @@ int main(void){
 
     cout << "entering time loop" << endl;
     for(int i =0; i<NT; i++){
+        dump_running_density_data(&g, "running_density.dat");
         timestep(&g, &electrons, &ions);
         printf("Iteration %d\r", i);
     }
