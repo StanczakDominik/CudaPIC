@@ -89,7 +89,8 @@ __global__ void solve_poisson(float *d_kv, cufftComplex *d_fourier_rho, cufftCom
     /*solve poisson equation
     d_kv: wave vector
     d_fourier_rho: complex array of fourier transformed charge densities
-    d_fourier_E(i):v
+    d_fourier_E(i):
+    */
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
