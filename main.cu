@@ -437,6 +437,7 @@ void dump_running_density_data(Grid *g, char* name){
     {
         fprintf(density_data, "%f %f %f %f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
     }
+    fprintf(density_data, "\n");
 }
 
 void dump_position_data(Species *s, char* name){
