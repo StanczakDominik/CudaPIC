@@ -8,15 +8,15 @@ using namespace std;
 #define ELECTRON_MASS 9.10938356e-31
 #define PROTON_MASS 1.6726219e-27
 #define ELECTRON_CHARGE 1
-// NOTE: setting electron charge to the default SI 1.6e-19 value breaks interpolation 
+// NOTE: setting electron charge to the default SI 1.6e-19 value breaks interpolation
 #define EPSILON_ZERO 8.854e-12
 
 #define N_particles_1_axis 71
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
 #define L 1e-4
-#define dt 1e-24
+#define dt 1e-25
 //TODO: THIS HERE TIMESTEP I AM NOT COMPLETELY CERTAIN ABOUT
-#define NT 100
+#define NT 1000
 #define N_grid 16
 #define N_grid_all (N_grid *N_grid * N_grid)
 #define dx (L/float(N_grid))
@@ -420,7 +420,7 @@ void dump_density_data(Grid *g, char* name){
     float rho_total = 0.0f;
     for (int n = 0; n < N_grid_all; n++)
     {
-        fprintf(density_data, "%f %f %f %f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
+        fprintf(density_data, "%f %.0f %.0f %.0f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
         printf("%d %f %f %f %f\n", n, g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
         rho_total += g->rho[n];
     }
@@ -432,7 +432,7 @@ void dump_running_density_data(Grid *g, char* name){
     CUDA_ERROR(cudaMemcpy(g->Ex, g->d_Ex, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
     CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
     CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    FILE *density_data = fopen(name, "a");
+    FILE *density_data = fopen(name, "w");
     for (int n = 0; n < N_grid_all; n++)
     {
         fprintf(density_data, "\n%f %f %f %f", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
@@ -488,9 +488,8 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
     CUDA_ERROR(cudaDeviceSynchronize());
 
     //4. use charge density to calculate field
-    // debug_field_solver_sine(g);
     field_solver(g);
-    // CUDA_ERROR(cudaDeviceSynchronize());
+    CUDA_ERROR(cudaDeviceSynchronize());
 }
 
 int main(void){
@@ -518,7 +517,9 @@ int main(void){
 
     cout << "entering time loop" << endl;
     for(int i =0; i<NT; i++){
-        dump_running_density_data(&g, "running_density.dat");
+        char* filename = new char[100];
+        sprintf(filename, "gfx/running_density_%d.dat", i);
+        dump_running_density_data(&g, filename);
         timestep(&g, &electrons, &ions);
         printf("Iteration %d\r", i);
     }
@@ -527,6 +528,7 @@ int main(void){
 
     // dump_position_data(&ions, "final_ions_positions.dat");
     // dump_position_data(&electrons, "final_electrons_positions.dat");
+    //test
     dump_density_data(&g, "final_density.dat");
 
 
