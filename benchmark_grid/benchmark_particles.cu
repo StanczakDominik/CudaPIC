@@ -1,32 +1,32 @@
-#include <stdio.h>
-#include <curand.h>
-#include <curand_kernel.h>
-#include <cufft.h>
-#include <iostream>
-using namespace std;
-
-#define ELECTRON_MASS 9.10938356e-31
-#define PROTON_MASS 1.6726219e-27
-#define ELECTRON_CHARGE 1
-// NOTE: setting electron charge to the default SI 1.6e-19 value breaks interpolation
-#define EPSILON_ZERO 8.854e-12
-
-#define N_particles_1_axis 71
+// #include <stdio.h>
+// #include <curand.h>
+// #include <curand_kernel.h>
+// #include <cufft.h>
+// #include <iostream>
+// using namespace std;
+//
+// #define ELECTRON_MASS 9.10938356e-31
+// #define PROTON_MASS 1.6726219e-27
+// #define ELECTRON_CHARGE 1
+// // NOTE: setting electron charge to the default SI 1.6e-19 value breaks interpolation
+// #define EPSILON_ZERO 8.854e-12
+//
+// //TODO: THIS HERE TIMESTEP I AM NOT COMPLETELY CERTAIN ABOUT
+// #define NT 1000
+// #define N_grid 16
+#define N_particles_1_axis 64
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
 #define L 1e-4
 #define dt 1e-25
-//TODO: THIS HERE TIMESTEP I AM NOT COMPLETELY CERTAIN ABOUT
-#define NT 1000
-#define N_grid 16
 #define N_grid_all (N_grid *N_grid * N_grid)
 #define dx (L/float(N_grid))
 #define dy dx
 #define dz dx
 
 
-dim3 particleThreads(N_particles_1_axis);
+dim3 particleThreads(512);
 dim3 particleBlocks((N_particles+particleThreads.x - 1)/particleThreads.x);
-dim3 gridThreads(N_grid/2,N_grid/2,N_grid/2);
+dim3 gridThreads(8,8,8);
 dim3 gridBlocks((N_grid+gridThreads.x-1)/gridThreads.x, (N_grid + gridThreads.y - 1)/gridThreads.y, (N_grid+gridThreads.z-1)/gridThreads.z);
 
 static void CUDA_ERROR( cudaError_t err){
@@ -497,11 +497,12 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
 
 int main(void){
 
+    printf("N_grid   Threads per block Blocks\n");
+    printf("%7d %17d %6d\n", N_grid_all, gridThreads.x, gridBlocks.x);
 
     cudaEvent_t startLoop, endLoop;
     cudaEventCreate(&startLoop);
     cudaEventCreate(&endLoop);
-
 
     Grid g;
     init_grid(&g);
@@ -521,19 +522,12 @@ int main(void){
     init_timestep(&g, &electrons, &ions);
 
     CUDA_ERROR(cudaGetLastError());
-    // dump_position_data(&ions, "ions_positions.dat");
-    // dump_position_data(&electrons, "electrons_positions.dat");
-    dump_density_data(&g, "initial_density.dat");
 
-    cout << "entering time loop" << endl;
     cudaEventSynchronize(startLoop);
     cudaEventRecord(startLoop);
     for(int i =0; i<NT; i++){
         char* filename = new char[100];
-        sprintf(filename, "gfx/running_density_%d.dat", i);
-        dump_running_density_data(&g, filename);
         timestep(&g, &electrons, &ions);
-        printf("Iteration %d\r", i);
     }
 
     cudaDeviceSynchronize();
@@ -544,24 +538,21 @@ int main(void){
     float loopRuntimeMS = 0;
     cudaEventElapsedTime(&loopRuntimeMS, startLoop, endLoop);
 
+    printf("N_grid   Threads per block Blocks\tRuntime\n");
+    printf("%7d %17d %6d %f\n", N_grid_all, gridThreads.x, gridBlocks.x, loopRuntimeMS);
     if (loopRuntimeMS > 0.0001)
     {
         char* filename = new char[100];
-        sprintf(filename, "benchmark/pb_%d_%d_%d.bdat", N_particles, particleThreads.x, particleBlocks.x);
+        sprintf(filename, "benchmark/pb_%d_%d_%d.bdat", N_grid, gridThreads.x, gridBlocks.x);
         FILE *benchmark = fopen(filename, "w");
-        fprintf(benchmark, "Particles Threads per block Blocks\tRuntime\n");
-        fprintf(benchmark, "%8d %17d %6d %f\n", N_particles, particleThreads.x, particleBlocks.x, loopRuntimeMS);
+        fprintf(benchmark, "N_grid   Threads per block Blocks\tRuntime\n");
+        fprintf(benchmark, "%7d %17d %6d %f\n", N_grid_all, gridThreads.x, gridBlocks.x, loopRuntimeMS);
         fclose(benchmark);
     }
     else
     {
         printf("Not saved!\n");
     }
-    printf("Particles Threads per block Blocks Runtime\n");
-    printf("%8d %17d %6d %f\n", N_particles, particleThreads.x, particleBlocks.x, loopRuntimeMS);
-
-    dump_density_data(&g, "final_density.dat");
-
 
     CUDA_ERROR(cudaFree(electrons.d_particles));
     CUDA_ERROR(cudaFree(g.d_rho));

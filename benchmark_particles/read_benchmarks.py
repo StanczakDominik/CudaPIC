@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-benchmark_directory = "/home/dominik/Code/CUDA/CUDAPIC/benchmark_threads/"
+benchmark_directory = "/home/dominik/Code/CUDA/CUDAPIC/benchmark_particles/"
 list_files = os.listdir(benchmark_directory)
 
 list_N = []
@@ -23,7 +23,7 @@ for filename in list_files:
             list_RT.append(Runtime)
 
 fig, (axN, axT, axB) = plt.subplots(3)
-axN.set_title("Benchmark: CUDA Particle in Cell simulation: varying particle thread size")
+axN.set_title("Benchmark: CUDA Particle in Cell simulation: varying number of particles")
 axN.plot(list_N, list_RT, "ko")
 axN.set_xlabel("Number of particles")
 axN.set_ylabel("Runtime [ms]")
@@ -43,4 +43,5 @@ axB.grid()
 
 
 plt.savefig("particle_benchmark_data.png")
+plt.tight_layout()
 plt.show()

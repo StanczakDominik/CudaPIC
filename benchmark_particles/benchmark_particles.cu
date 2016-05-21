@@ -1,17 +1,17 @@
-#include <stdio.h>
-#include <curand.h>
-#include <curand_kernel.h>
-#include <cufft.h>
-#include <iostream>
-using namespace std;
-
-#define ELECTRON_MASS 9.10938356e-31
-#define PROTON_MASS 1.6726219e-27
-#define ELECTRON_CHARGE 1
-// NOTE: setting electron charge to the default SI 1.6e-19 value breaks interpolation
-#define EPSILON_ZERO 8.854e-12
-
-#define N_particles_1_axis 71
+// #include <stdio.h>
+// #include <curand.h>
+// #include <curand_kernel.h>
+// #include <cufft.h>
+// #include <iostream>
+// using namespace std;
+//
+// #define ELECTRON_MASS 9.10938356e-31
+// #define PROTON_MASS 1.6726219e-27
+// #define ELECTRON_CHARGE 1
+// // NOTE: setting electron charge to the default SI 1.6e-19 value breaks interpolation
+// #define EPSILON_ZERO 8.854e-12
+//
+// #define N_particles_1_axis 71
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
 #define L 1e-4
 #define dt 1e-25

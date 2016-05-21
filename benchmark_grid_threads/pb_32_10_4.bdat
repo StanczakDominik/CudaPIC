@@ -1,0 +1,2 @@
+N_grid   Threads per block Blocks	Runtime
+  32768                10      4 14582.049805
