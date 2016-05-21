@@ -41,6 +41,6 @@ axB.set_xlabel("Number of blocks in simulation")
 axB.set_ylabel("Runtime [s]")
 axB.grid()
 
-
+plt.tight_layout()
 plt.savefig("grid_benchmark_data.png")
 plt.show()

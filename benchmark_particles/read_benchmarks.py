@@ -20,28 +20,28 @@ for filename in list_files:
             list_N.append(N_particles)
             list_T.append(Threads)
             list_B.append(Blocks)
-            list_RT.append(Runtime)
+            list_RT.append(Runtime/1000)
 
 fig, (axN, axT, axB) = plt.subplots(3)
 axN.set_title("Benchmark: CUDA Particle in Cell simulation: varying number of particles")
 axN.plot(list_N, list_RT, "ko")
 axN.set_xlabel("Number of particles")
-axN.set_ylabel("Runtime [ms]")
+axN.set_ylabel("Runtime [s]")
 axN.grid()
 
 
 axT.plot(list_T, list_RT, "ko")
 axT.set_xlabel("Number of threads per block")
-axT.set_ylabel("Runtime [ms]")
+axT.set_ylabel("Runtime [s]")
 axT.grid()
 
 
 axB.plot(list_B, list_RT, "ko")
 axB.set_xlabel("Number of blocks in simulation")
-axB.set_ylabel("Runtime [ms]")
+axB.set_ylabel("Runtime [s]")
 axB.grid()
 
 
-plt.savefig("particle_benchmark_data.png")
 plt.tight_layout()
+plt.savefig("particle_benchmark_data.png")
 plt.show()
