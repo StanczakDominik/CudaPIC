@@ -215,7 +215,6 @@ void debug_field_solver_uniform(Grid *g){
             }
         }
     }
-    // cout << "if happy and know it clap your hands" << endl;
     cudaMemcpy(g->d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
     cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
     cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
@@ -239,26 +238,6 @@ void debug_field_solver_sine(Grid *g)
     cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
     cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
 }
-// void debug_field_solver_quadratic(Grid *g)
-// {
-//     float* linear_field_x = new float[N_grid_all];
-//     float* linear_field_y = new float[N_grid_all];
-//     float* linear_field_z = new float[N_grid_all];
-//     for(int i = 0; i<N_grid;  i++){
-//         for(int j = 0; j<N_grid;  j++){
-//             for(int k = 0; k<N_grid;  k++){
-//                 int index = i*N_grid*N_grid + j*N_grid + k;
-//                 linear_field_x[index] = (dx*i)*(dx*i);
-//                 linear_field_y[index] = (dx*j)*(dx*j);
-//                 linear_field_z[index] = (dx*k)*(dx*k);
-//             }
-//         }
-//     }
-//     cudaMemcpy(g->d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-//     cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-//     cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-// }
-
 void field_solver(Grid *g){
     cufftExecR2C(g->plan_forward, g->d_rho, g->d_fourier_rho);
     CUDA_ERROR(cudaDeviceSynchronize());
@@ -544,6 +523,8 @@ int main(void){
     float loopRuntimeMS = 0;
     cudaEventElapsedTime(&loopRuntimeMS, startLoop, endLoop);
 
+    printf("Particles Threads per block Blocks Runtime\n");
+    printf("%8d %17d %6d %f\n", N_particles, particleThreads.x, particleBlocks.x, loopRuntimeMS);
     if (loopRuntimeMS > 0.0001)
     {
         char* filename = new char[100];
@@ -557,8 +538,6 @@ int main(void){
     {
         printf("Not saved!\n");
     }
-    printf("Particles Threads per block Blocks Runtime\n");
-    printf("%8d %17d %6d %f\n", N_particles, particleThreads.x, particleBlocks.x, loopRuntimeMS);
 
     dump_density_data(&g, "final_density.dat");
 
