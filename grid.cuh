@@ -1,4 +1,7 @@
-#include "helpers.h"
+#ifndef GRID_H_
+#define GRID_H_
+
+#include "helpers.cuh"
 
 #define N_grid 16
 #define N_grid_all (N_grid *N_grid * N_grid)
@@ -8,7 +11,7 @@
 #define L 1e-4
 
 
-extern dim3 gridThreads
+extern dim3 gridThreads;
 extern dim3 gridBlocks;
 
 struct Grid{
@@ -53,3 +56,5 @@ void dump_running_density_data(Grid *g, char* name);
 
 __device__ int position_to_grid_index(float X);
 __device__ float position_in_cell(float x);
+
+#endif

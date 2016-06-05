@@ -3,9 +3,9 @@
 #include <curand_kernel.h>
 #include <cufft.h>
 #include <iostream>
-#include "grid.h"
-#include "helpers.h"
-#include "particles.h"
+#include "grid.cuh"
+#include "helpers.cuh"
+#include "particles.cuh"
 using namespace std;
 
 void init_timestep(Grid *g, Species *electrons,  Species *ions){
@@ -46,73 +46,6 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
     //4. use charge density to calculate field
     field_solver(g);
     CUDA_ERROR(cudaDeviceSynchronize());
-}
-
-__global__ diagnostic_reduction_kernel(Species *s)
-{
-    int n = blockDim.x * blockIdx.x + threadIdx.x;
-    if(n<N_particles)
-    {
-        Particle *p = &(d_p[n]);
-        float rx = p->rx;
-        float ry = p->ry;
-        float rz = p->rz;
-        float vx = p->vx;
-        float vy = p->vy;
-        float vz = p->vz;
-        float v2 = vx*vx + vy*vy + vz*vz;
-        float vabs = sqrt(v2);
-        //TODO:
-        //  particle field energy requires rewrite
-        //  to keep interpolated field as variable in particle
-        //  rel. easy
-
-        //reduce above variables
-    }
-    if(n == 0)
-    {
-        //s.total_values = reduced variables
-    }
-}
-
-void diagnostics(Species *s)
-{
-    /*
-    calculates:
-    mean velocity
-    mean square of velocity
-    variance as mean square of velocity - mean velocity squared
-
-    kinetic energy
-    potential energy of particles
-    field energy
-    for p in particles:
-
-    warte uśrednienia są:
-    vx, vy, vz, |v|, v^2
-
-    TODO: uśrednić na siatkę!!!!!! wtedy widać jak to ewoluuje!
-
-    1. loop po cząstkach
-        * vx
-        * vy
-        * vz
-        * v^2 = vx^2 + vy^2 + vz^2
-        * |v| = sqrt(v^2)
-        * V(r) (później)
-    2. reduce all powyższe (mozna inplace)
-    3. analiza danych:
-        * podzielić przez N_particles, średnie wielkości
-        * energia kinetyczna: 0.5 m sum v^2
-        * energia potencjalna: 0.5 q sum V(r)
-        * temperatura: 0.5 m (<v^2> - <v>^2)
-    */
-
-    diagnostic_reduction_kernel<<<particleBlocks, particleThreads>>>(s);
-    float total_kinetic_energy = 0.5f * s.m * s.total_v2;
-    float avg_modV = s.total_vabs / s.N;
-    float avg_v2 = s.total_v2 / s.N;
-    float temperature = 0.5f * s.m * (avg_v2 - avg_modV * avg_modV);
 }
 
 int main(void){

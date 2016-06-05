@@ -1,3 +1,6 @@
+#ifndef HELPERS_H_
+#define HELPERS_H_
+
 #define ELECTRON_MASS 9.10938356e-31
 #define PROTON_MASS 1.6726219e-27
 #define ELECTRON_CHARGE 1
@@ -6,3 +9,5 @@
 
 
 static void CUDA_ERROR( cudaError_t err);
+
+#endif

@@ -1,5 +1,8 @@
-#include "grid.h"
+#ifndef PARTICLES_H_
+#define PARTICLES_H_
 
+#include "grid.cuh"
+#include "helpers.cuh"
 extern dim3 particleThreads;
 extern dim3 particleBlocks;
 
@@ -41,3 +44,7 @@ __global__ void InitialVelocityStep(Particle *d_p, float q, float m, float *d_Ex
 __global__ void ParticleKernel(Particle *d_p, float q, float m, float *d_Ex, float *d_Ey, float *d_Ez);
 void init_species(Species *s, float shiftx, float shifty, float shiftz);
 void dump_position_data(Species *s, char* name);
+__global__ diagnostic_reduction_kernel(Species *s);
+void diagnostics(Species *s);
+
+#endif
