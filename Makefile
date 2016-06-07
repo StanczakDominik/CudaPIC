@@ -19,4 +19,7 @@ helpers.o: helpers.cu helpers.cuh
 	$(NVCC) $(NVCC_FLAGS) -c $< -o $@
 
 clean:
-	rm -f *.o *.exe *.out
+	rm -f *.o *.exe *.out data/*.dat data/*.bdat
+
+rerun:
+	rm -f data/*dat data/*.bdat

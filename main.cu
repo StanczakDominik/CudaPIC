@@ -45,6 +45,7 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
 
     //4. use charge density to calculate field
     field_solver(g);
+    CUDA_ERROR(cudaGetLastError());
     CUDA_ERROR(cudaDeviceSynchronize());
 }
 
@@ -69,7 +70,7 @@ int main(void){
     ions.q = +ELECTRON_CHARGE;
     ions.m = PROTON_MASS;
     ions.N = N_particles;
-    init_species(&ions, L/100.0f, 0, 0);
+    init_species(&ions, L/101.0f, 0);
     //TODO: initialize for two stream instability
     init_timestep(&g, &electrons, &ions);
 
@@ -95,8 +96,7 @@ int main(void){
     cudaDeviceSynchronize();
     cudaEventSynchronize(endLoop);
     cudaEventRecord(endLoop);
-    cout << endl << "finished time loop" << endl;
-
+    printf("\nfinished time loop\n");
     float loopRuntimeMS = 0;
     cudaEventElapsedTime(&loopRuntimeMS, startLoop, endLoop);
 
@@ -105,7 +105,7 @@ int main(void){
     if (loopRuntimeMS > 0.0001)
     {
         char* filename = new char[100];
-        sprintf(filename, "benchmark/pb_%d_%d_%d.bdat", N_particles, particleThreads.x, particleBlocks.x);
+        sprintf(filename, "data/pb_%d_%d_%d.bdat", N_particles, particleThreads.x, particleBlocks.x);
         FILE *benchmark = fopen(filename, "w");
         fprintf(benchmark, "Particles Threads per block Blocks\tRuntime\n");
         fprintf(benchmark, "%8d %17d %6d %f\n", N_particles, particleThreads.x, particleBlocks.x, loopRuntimeMS);

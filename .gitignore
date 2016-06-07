@@ -1,6 +1,8 @@
 *.out
-*.dat
 *.png
 *.gch
 *.o
 *.exe
+
+*.dat
+*.bdat
