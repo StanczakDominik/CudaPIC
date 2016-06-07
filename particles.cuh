@@ -3,10 +3,14 @@
 
 #include "grid.cuh"
 #include "helpers.cuh"
+
+#define N_particles_1_axis 71
+#define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
+
+
 extern dim3 particleThreads;
 extern dim3 particleBlocks;
 
-__global__ void InitParticleArrays(Particle *d_p, float shiftx, float shifty, float shiftz);
 struct Particle{
     //keeps information about the position of one particle in (6D) phase space (positions, velocities)
     float x;
@@ -17,6 +21,7 @@ struct Particle{
     float vz;
 };
 
+__global__ void InitParticleArrays(Particle *d_p, float shiftx, float shifty, float shiftz);
 struct Species{
     //keeps information about one distinct group of particles
     float m; //mass
@@ -44,7 +49,7 @@ __global__ void InitialVelocityStep(Particle *d_p, float q, float m, float *d_Ex
 __global__ void ParticleKernel(Particle *d_p, float q, float m, float *d_Ex, float *d_Ey, float *d_Ez);
 void init_species(Species *s, float shiftx, float shifty, float shiftz);
 void dump_position_data(Species *s, char* name);
-__global__ diagnostic_reduction_kernel(Species *s);
+__global__ void diagnostic_reduction_kernel(Species *s);
 void diagnostics(Species *s);
 
 #endif

@@ -69,22 +69,25 @@ int main(void){
     ions.q = +ELECTRON_CHARGE;
     ions.m = PROTON_MASS;
     ions.N = N_particles;
-    init_species(&ions, 0, 0, 0);
+    init_species(&ions, L/100.0f, 0, 0);
     //TODO: initialize for two stream instability
     init_timestep(&g, &electrons, &ions);
 
     CUDA_ERROR(cudaGetLastError());
     // dump_position_data(&ions, "ions_positions.dat");
     // dump_position_data(&electrons, "electrons_positions.dat");
-    dump_density_data(&g, "initial_density.dat");
+    dump_density_data(&g, (char*)"initial_density.dat");
 
-    cout << "entering time loop" << endl;
+    printf("entering time loop\n");
     cudaEventSynchronize(startLoop);
     cudaEventRecord(startLoop);
     for(int i =0; i<NT; i++){
-        char* filename = new char[100];
-        sprintf(filename, "gfx/running_density_%d.dat", i);
-        dump_running_density_data(&g, filename);
+        char filename[50];
+        sprintf(filename, "data/running_density_%d.dat", i);
+        // printf("%s\n", filename);
+        dump_running_density_data(&g, (char*)filename);
+        // dump_density_data(&g, (char*)"initial_density.dat");
+        // printf("dumped\n");
         timestep(&g, &electrons, &ions);
         printf("Iteration %d\r", i);
     }
@@ -113,7 +116,7 @@ int main(void){
         printf("Not saved!\n");
     }
 
-    dump_density_data(&g, "final_density.dat");
+    dump_density_data(&g, (char*)"final_density.dat");
 
 
     CUDA_ERROR(cudaFree(electrons.d_particles));

@@ -1,3 +1,5 @@
+#include "grid.cuh"
+
 dim3 gridThreads(N_grid/2,N_grid/2,N_grid/2);
 dim3 gridBlocks((N_grid+gridThreads.x-1)/gridThreads.x, (N_grid + gridThreads.y - 1)/gridThreads.y, (N_grid+gridThreads.z-1)/gridThreads.z);
 
@@ -119,6 +121,7 @@ void init_grid(Grid *g){
     CUDA_ERROR(cudaMemcpy(g->d_Ey, g->Ey, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice));
     CUDA_ERROR(cudaMalloc((void**)&(g->d_Ez), sizeof(float)*N_grid_all));
     CUDA_ERROR(cudaMemcpy(g->d_Ez, g->Ez, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice));
+
     cufftPlan3d(&(g->plan_forward), N_grid, N_grid, N_grid, CUFFT_R2C);
     cufftPlan3d(&(g->plan_backward), N_grid, N_grid, N_grid, CUFFT_C2R);
 }
@@ -176,7 +179,7 @@ void field_solver(Grid *g){
 }
 
 void dump_density_data(Grid *g, char* name){
-    cout << "dumping" << endl;
+    printf("dumping\n");
     CUDA_ERROR(cudaMemcpy(g->rho, g->d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
     CUDA_ERROR(cudaMemcpy(g->Ex, g->d_Ex, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
     CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
@@ -200,17 +203,7 @@ void dump_running_density_data(Grid *g, char* name){
     FILE *density_data = fopen(name, "w");
     for (int n = 0; n < N_grid_all; n++)
     {
-        fprintf(density_data, "\n%f %f %f %f", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
+        fprintf(density_data, "%f %.0f %.0f %.0f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
     }
-    fclose(density_data);
-}
-
-
-
-__device__ int position_to_grid_index(float X){
-    return int(X/dx);
-}
-__device__ float position_in_cell(float x){
-    int grid_index = position_to_grid_index(x);
-    return x - grid_index*dx;
+    // fclose(density_data);
 }

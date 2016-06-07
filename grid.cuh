@@ -1,14 +1,16 @@
 #ifndef GRID_H_
 #define GRID_H_
 
-#include "helpers.cuh"
-
 #define N_grid 16
 #define N_grid_all (N_grid *N_grid * N_grid)
 #define dx (L/float(N_grid))
 #define dy dx
 #define dz dx
 #define L 1e-4
+
+#include "helpers.cuh"
+#include <cufft.h>
+
 
 
 extern dim3 gridThreads;

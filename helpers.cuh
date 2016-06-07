@@ -1,6 +1,12 @@
 #ifndef HELPERS_H_
 #define HELPERS_H_
 
+#include <iostream>
+#include <stdio.h>
+
+#define NT 10000
+#define dt 1e-6
+
 #define ELECTRON_MASS 9.10938356e-31
 #define PROTON_MASS 1.6726219e-27
 #define ELECTRON_CHARGE 1
@@ -8,6 +14,6 @@
 #define EPSILON_ZERO 8.854e-12
 
 
-static void CUDA_ERROR( cudaError_t err);
+void CUDA_ERROR( cudaError_t err);
 
 #endif

@@ -1,6 +1,4 @@
-#define N_particles_1_axis 71
-#define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
-
+#include "particles.cuh"
 
 dim3 particleThreads(N_particles_1_axis);
 dim3 particleBlocks((N_particles+particleThreads.x - 1)/particleThreads.x);
@@ -135,14 +133,14 @@ __global__ void ParticleKernel(Particle *d_p, float q, float m, float *d_Ex, flo
 void init_species(Species *s, float shiftx, float shifty, float shiftz){
     s->particles = new Particle[N_particles];
     CUDA_ERROR(cudaMalloc((void**)&(s->d_particles), sizeof(Particle)*N_particles));
-    cout << "initializing particles" << endl;
+    printf("initializing particles\n");
     InitParticleArrays<<<particleBlocks, particleThreads>>>(s->d_particles, shiftx, shifty, shiftz);
 }
 
 void dump_position_data(Species *s, char* name){
-    cout << "Copying particles from GPU to device"<< endl;
+    printf("Copying particles from GPU to device\n");
     CUDA_ERROR(cudaMemcpy(s->particles, s->d_particles, sizeof(Particle)*N_particles, cudaMemcpyDeviceToHost));
-    cout << "Copied particles from GPU to device"<< endl;
+    printf("Copied particles from GPU to device\n");
     FILE *initial_position_data = fopen(name, "w");
     for (int i =0; i<N_particles; i++)
     {
@@ -153,69 +151,69 @@ void dump_position_data(Species *s, char* name){
     fclose(initial_position_data);
 }
 
-__global__ diagnostic_reduction_kernel(Species *s)
-{
-    int n = blockDim.x * blockIdx.x + threadIdx.x;
-    if(n<N_particles)
-    {
-        Particle *p = &(d_p[n]);
-        float rx = p->rx;
-        float ry = p->ry;
-        float rz = p->rz;
-        float vx = p->vx;
-        float vy = p->vy;
-        float vz = p->vz;
-        float v2 = vx*vx + vy*vy + vz*vz;
-        float vabs = sqrt(v2);
-        //TODO:
-        //  particle field energy requires rewrite
-        //  to keep interpolated field as variable in particle
-        //  rel. easy
-
-        //reduce above variables
-    }
-    if(n == 0)
-    {
-        //s.total_values = reduced variables
-    }
-}
-
-void diagnostics(Species *s)
-{
-    /*
-    calculates:
-    mean velocity
-    mean square of velocity
-    variance as mean square of velocity - mean velocity squared
-
-    kinetic energy
-    potential energy of particles
-    field energy
-    for p in particles:
-
-    warte uśrednienia są:
-    vx, vy, vz, |v|, v^2
-
-    TODO: uśrednić na siatkę!!!!!! wtedy widać jak to ewoluuje!
-
-    1. loop po cząstkach
-        * vx
-        * vy
-        * vz
-        * v^2 = vx^2 + vy^2 + vz^2
-        * |v| = sqrt(v^2)
-        * V(r) (później)
-    2. reduce all powyższe (mozna inplace)
-    3. analiza danych:
-        * podzielić przez N_particles, średnie wielkości
-        * energia kinetyczna: 0.5 m sum v^2
-        * energia potencjalna: 0.5 q sum V(r)
-        * temperatura: 0.5 m (<v^2> - <v>^2)
-    */
-
-    diagnostic_reduction_kernel<<<particleBlocks, particleThreads>>>(s);
-    float total_kinetic_energy = 0.5f * s.m * s.total_v2;
-    float avg_modV = s.total_vabs / s.N;
-    float avg_v2 = s.total_v2 / s.N;
-    float temperature = 0.5f * s.m * (avg_v2 - avg_modV * avg_modV);
-}
+// __global__ void diagnostic_reduction_kernel(Species s)
+// {
+//     int n = blockDim.x * blockIdx.x + threadIdx.x;
+//     if(n<N_particles)
+//     {
+//         Particle *p = &(s.d_particles[n]);
+//         float rx = p->x;
+//         float ry = p->y;
+//         float rz = p->z;
+//         float vx = p->vx;
+//         float vy = p->vy;
+//         float vz = p->vz;
+//         float v2 = vx*vx + vy*vy + vz*vz;
+//         float vabs = sqrt(v2);
+//         //TODO:
+//         //  particle field energy requires rewrite
+//         //  to keep interpolated field as variable in particle
+//         //  rel. easy
+//
+//         //reduce above variables
+//     }
+//     if(n == 0)
+//     {
+//         //s.total_values = reduced variables
+//     }
+// }
+//
+// void diagnostics(Species *s)
+// {
+//     /*
+//     calculates:
+//     mean velocity
+//     mean square of velocity
+//     variance as mean square of velocity - mean velocity squared
+//
+//     kinetic energy
+//     potential energy of particles
+//     field energy
+//     for p in particles:
+//
+//     warte uśrednienia są:
+//     vx, vy, vz, |v|, v^2
+//
+//     TODO: uśrednić na siatkę!!!!!! wtedy widać jak to ewoluuje!
+//
+//     1. loop po cząstkach
+//         * vx
+//         * vy
+//         * vz
+//         * v^2 = vx^2 + vy^2 + vz^2
+//         * |v| = sqrt(v^2)
+//         * V(r) (później)
+//     2. reduce all powyższe (mozna inplace)
+//     3. analiza danych:
+//         * podzielić przez N_particles, średnie wielkości
+//         * energia kinetyczna: 0.5 m sum v^2
+//         * energia potencjalna: 0.5 q sum V(r)
+//         * temperatura: 0.5 m (<v^2> - <v>^2)
+//     */
+//
+//     diagnostic_reduction_kernel<<<particleBlocks, particleThreads>>>(s);
+//     // float total_kinetic_energy = 0.5f * s.m * s.total_v2;
+//     // float avg_modV = s.total_vabs / s.N;
+//     // float avg_v2 = s.total_v2 / s.N;
+//     // float temperature = 0.5f * s.m * (avg_v2 - avg_modV * avg_modV);
+// }
