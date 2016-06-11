@@ -87,6 +87,7 @@ __device__ float gather_grid_to_particle(Particle *p, float *grid){
 
 __global__ void InitialVelocityStep(Particle *d_p, float q, float m, float *d_Ex, float *d_Ey, float *d_Ez){
     int n = blockDim.x * blockIdx.x + threadIdx.x;
+    if(n<N_particles)
     {
         Particle *p = &(d_p[n]);
         //gather electric field
@@ -138,11 +139,11 @@ void init_species(Species *s, float shiftx, float shifty, float shiftz){
 }
 
 void dump_position_data(Species *s, char* name){
-    printf("Copying particles from GPU to device\n");
+    // printf("Copying particles from GPU to device\n");
     CUDA_ERROR(cudaMemcpy(s->particles, s->d_particles, sizeof(Particle)*N_particles, cudaMemcpyDeviceToHost));
-    printf("Copied particles from GPU to device\n");
+    // printf("Copied particles from GPU to device\n");
     FILE *initial_position_data = fopen(name, "w");
-    for (int i =0; i<N_particles; i++)
+    for (int i =0; i<N_particles; i += 51)
     {
         Particle *p = &(s->particles[i]);
         fprintf(initial_position_data, "%f %f %f %f %f %f\n", p->x, p->y, p->z, p->vx, p->vy, p->vz);

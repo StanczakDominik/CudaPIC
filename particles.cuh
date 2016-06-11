@@ -4,7 +4,7 @@
 #include "grid.cuh"
 #include "helpers.cuh"
 
-#define N_particles_1_axis 71
+#define N_particles_1_axis 64
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
 
 
@@ -33,12 +33,12 @@ struct Species{
     Particle *particles;
     Particle *d_particles;
 
-    Particle total_values;
-    float total_v2;
-    float total_vabs;
-    float T;
-    float kinetic_E;
-    float potential_E;
+    // Particle total_values;
+    // float total_v2;
+    // float total_vabs;
+    // float T;
+    // float kinetic_E;
+    // float potential_E;
 };
 
 
@@ -51,5 +51,4 @@ void init_species(Species *s, float shiftx, float shifty, float shiftz);
 void dump_position_data(Species *s, char* name);
 __global__ void diagnostic_reduction_kernel(Species *s);
 void diagnostics(Species *s);
-
 #endif

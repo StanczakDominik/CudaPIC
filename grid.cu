@@ -188,7 +188,7 @@ void dump_density_data(Grid *g, char* name){
     float rho_total = 0.0f;
     for (int n = 0; n < N_grid_all; n++)
     {
-        fprintf(density_data, "%f %.0f %.0f %.0f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
+        fprintf(density_data, "%f %.2f %.2f %.2f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
         // printf("%d %f %f %f %f\n", n, g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
         rho_total += g->rho[n];
     }

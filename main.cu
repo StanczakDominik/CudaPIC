@@ -1,12 +1,11 @@
 #include <stdio.h>
-#include <curand.h>
-#include <curand_kernel.h>
-#include <cufft.h>
 #include <iostream>
 #include "grid.cuh"
 #include "helpers.cuh"
 #include "particles.cuh"
 using namespace std;
+
+#define SNAP_EVERY 100
 
 void init_timestep(Grid *g, Species *electrons,  Species *ions){
     set_grid_array_to_value<<<gridBlocks, gridThreads>>>(g->d_rho, 0);
@@ -16,7 +15,7 @@ void init_timestep(Grid *g, Species *electrons,  Species *ions){
     scatter_charge<<<particleBlocks, particleThreads>>>(ions->d_particles, ions->q, g->d_rho);
     CUDA_ERROR(cudaDeviceSynchronize());
 
-    // debug_field_solver_sine(g);
+    // debug_field_solver_uniform(g);
     field_solver(g);
     CUDA_ERROR(cudaDeviceSynchronize());
 
@@ -45,6 +44,7 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
 
     //4. use charge density to calculate field
     field_solver(g);
+    // debug_field_solver_uniform(g);
     CUDA_ERROR(cudaGetLastError());
     CUDA_ERROR(cudaDeviceSynchronize());
 }
@@ -64,31 +64,35 @@ int main(void){
     electrons.q = -ELECTRON_CHARGE;
     electrons.m = ELECTRON_MASS;
     electrons.N = N_particles;
-    init_species(&electrons, L/100.0f, 0, 0);
+    init_species(&electrons, dx*0.1f, dy*0.1f, dz*0.1f);
 
     Species ions;
     ions.q = +ELECTRON_CHARGE;
     ions.m = PROTON_MASS;
     ions.N = N_particles;
-    init_species(&ions, L/101.0f, 0);
-    //TODO: initialize for two stream instability
-    init_timestep(&g, &electrons, &ions);
+    init_species(&ions, 0, 0, 0);
 
     CUDA_ERROR(cudaGetLastError());
-    // dump_position_data(&ions, "ions_positions.dat");
-    // dump_position_data(&electrons, "electrons_positions.dat");
-    dump_density_data(&g, (char*)"initial_density.dat");
+    dump_position_data(&ions, "data/ions_positions.dat");
+    dump_position_data(&electrons, "data/electrons_positions.dat");
+    dump_density_data(&g, (char*)"data/initial_density.dat");
+
+    init_timestep(&g, &electrons, &ions);
 
     printf("entering time loop\n");
     cudaEventSynchronize(startLoop);
     cudaEventRecord(startLoop);
+    char filename[50];
     for(int i =0; i<NT; i++){
-        char filename[50];
-        sprintf(filename, "data/running_density_%d.dat", i);
-        // printf("%s\n", filename);
-        dump_running_density_data(&g, (char*)filename);
-        // dump_density_data(&g, (char*)"initial_density.dat");
-        // printf("dumped\n");
+        if (i % SNAP_EVERY == 0)
+        {
+            sprintf(filename, "data/running_density_%d.dat", i);
+            dump_running_density_data(&g, (char*)filename);
+            sprintf(filename, "data/ions_positions_%d.dat", i);
+            dump_position_data(&ions, filename);
+            sprintf(filename, "data/electrons_positions_%d.dat", i);
+            dump_position_data(&electrons, filename);
+        }
         timestep(&g, &electrons, &ions);
         printf("Iteration %d\r", i);
     }
@@ -99,6 +103,14 @@ int main(void){
     printf("\nfinished time loop\n");
     float loopRuntimeMS = 0;
     cudaEventElapsedTime(&loopRuntimeMS, startLoop, endLoop);
+
+
+    sprintf(filename, "data/running_density_%d.dat", NT);
+    dump_running_density_data(&g, (char*)filename);
+    sprintf(filename, "data/ions_positions_%d.dat", NT);
+    dump_position_data(&ions, filename);
+    sprintf(filename, "data/electrons_positions_%d.dat", NT);
+    dump_position_data(&electrons, filename);
 
     printf("Particles Threads per block Blocks Runtime\n");
     printf("%8d %17d %6d %f\n", N_particles, particleThreads.x, particleBlocks.x, loopRuntimeMS);
@@ -116,7 +128,7 @@ int main(void){
         printf("Not saved!\n");
     }
 
-    dump_density_data(&g, (char*)"final_density.dat");
+    dump_density_data(&g, (char*)"data/final_density.dat");
 
 
     CUDA_ERROR(cudaFree(electrons.d_particles));

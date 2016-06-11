@@ -6,12 +6,10 @@
 #define dx (L/float(N_grid))
 #define dy dx
 #define dz dx
-#define L 1e-4
+#define L 1
 
 #include "helpers.cuh"
 #include <cufft.h>
-
-
 
 extern dim3 gridThreads;
 extern dim3 gridBlocks;

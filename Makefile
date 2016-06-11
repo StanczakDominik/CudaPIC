@@ -22,4 +22,4 @@ clean:
 	rm -f *.o *.exe *.out data/*.dat data/*.bdat
 
 rerun:
-	rm -f data/*dat data/*.bdat
+	rm -f data/*
