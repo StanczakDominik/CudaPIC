@@ -2,16 +2,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-I = range(0, 100000, 100)
+I = range(0, 1000, 1)
 names = ["electrons_positions_{}", "ions_positions_{}"]
 colors = ["g", "b"]
 
 for i in I:
     fig = plt.figure(figsize=(12,12))
     ax = fig.add_subplot(221, projection="3d")
-    ax_x = fig.add_subplot(222)
-    ax_y = fig.add_subplot(223)
-    ax_z = fig.add_subplot(224)
+    ax_z = fig.add_subplot(222)
+    ax_x = fig.add_subplot(223)
+    ax_y = fig.add_subplot(224)
 
     ax.set_title("iteration: {}".format(i))
     ax.set_xlabel("x")
@@ -36,5 +36,5 @@ for i in I:
     figManager = plt.get_current_fig_manager()
     figManager.window.showMaximized()
     fig.savefig("data/snap_{}.png".format(i))
-    plt.show()
-    # plt.close(fig)
+    # plt.show()
+    plt.close(fig)

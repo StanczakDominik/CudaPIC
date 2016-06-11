@@ -4,8 +4,8 @@
 #include <iostream>
 #include <stdio.h>
 
-#define NT 100000
-#define dt 1.0f
+#define NT 10000
+#define dt 0.01f
 
 // #define ELECTRON_MASS 9.10938356e-31
 // #define PROTON_MASS 1.6726219e-27

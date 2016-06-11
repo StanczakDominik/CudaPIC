@@ -5,7 +5,7 @@
 #include "particles.cuh"
 using namespace std;
 
-#define SNAP_EVERY 100
+#define SNAP_EVERY 1
 
 void init_timestep(Grid *g, Species *electrons,  Species *ions){
     set_grid_array_to_value<<<gridBlocks, gridThreads>>>(g->d_rho, 0);
@@ -70,7 +70,7 @@ int main(void){
     ions.q = +ELECTRON_CHARGE;
     ions.m = PROTON_MASS;
     ions.N = N_particles;
-    init_species(&ions, 0, 0, 0);
+    init_species(&ions, dx*0.05f, dx*0.05f, dx*0.05f);
 
     CUDA_ERROR(cudaGetLastError());
     dump_position_data(&ions, "data/ions_positions.dat");
@@ -119,7 +119,7 @@ int main(void){
         char* filename = new char[100];
         sprintf(filename, "data/pb_%d_%d_%d.bdat", N_particles, particleThreads.x, particleBlocks.x);
         FILE *benchmark = fopen(filename, "w");
-        fprintf(benchmark, "Particles Threads per block Blocks\tRuntime\n");
+        fprintf(benchmark, "Particles Threads per block Blocks\tRuntime [ms]\n");
         fprintf(benchmark, "%8d %17d %6d %f\n", N_particles, particleThreads.x, particleBlocks.x, loopRuntimeMS);
         fclose(benchmark);
     }
