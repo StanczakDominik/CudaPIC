@@ -22,4 +22,10 @@ clean:
 	rm -f *.o *.exe *.out data/*.dat data/*.bdat
 
 rerun:
-	rm -f data/*
+	rm  data/*.png data/*.dat
+
+run:
+	make
+	./main.out &
+	sleep 3
+	python particles_plot.py

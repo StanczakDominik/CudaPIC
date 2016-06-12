@@ -4,7 +4,7 @@ dim3 particleThreads(N_particles_1_axis);
 dim3 particleBlocks((N_particles+particleThreads.x - 1)/particleThreads.x);
 
 
-__global__ void InitParticleArrays(Particle *d_p, float shiftx, float shifty, float shiftz){
+__global__ void InitParticleArrays(Particle *d_p, float shiftx, float shifty, float shiftz, float vx, float vy, float vz){
     int n = blockDim.x * blockIdx.x + threadIdx.x;
     if (n<N_particles){
         Particle *p = &(d_p[n]);
@@ -19,9 +19,9 @@ __global__ void InitParticleArrays(Particle *d_p, float shiftx, float shifty, fl
         p->z = L/float(N_particles_1_axis) * k + shiftz;
         p->z = p->z - floor(p->z/L)*L;
 
-        p->vx = 0.0f;
-        p->vy = 0.0f;
-        p->vz = 0.0f;
+        p->vx = vx;
+        p->vy = vy;
+        p->vz = vz;
     }
 }
 
@@ -131,11 +131,11 @@ __global__ void ParticleKernel(Particle *d_p, float q, float m, float *d_Ex, flo
 }
 
 
-void init_species(Species *s, float shiftx, float shifty, float shiftz){
+void init_species(Species *s, float shiftx, float shifty, float shiftz, float vx, float vy, float vz){
     s->particles = new Particle[N_particles];
     CUDA_ERROR(cudaMalloc((void**)&(s->d_particles), sizeof(Particle)*N_particles));
     printf("initializing particles\n");
-    InitParticleArrays<<<particleBlocks, particleThreads>>>(s->d_particles, shiftx, shifty, shiftz);
+    InitParticleArrays<<<particleBlocks, particleThreads>>>(s->d_particles, shiftx, shifty, shiftz, vx, vy, vz);
 }
 
 void dump_position_data(Species *s, char* name){

@@ -5,7 +5,7 @@
 #include "particles.cuh"
 using namespace std;
 
-#define SNAP_EVERY 1
+#define SNAP_EVERY 50
 
 void init_timestep(Grid *g, Species *electrons,  Species *ions){
     set_grid_array_to_value<<<gridBlocks, gridThreads>>>(g->d_rho, 0);
@@ -64,13 +64,13 @@ int main(void){
     electrons.q = -ELECTRON_CHARGE;
     electrons.m = ELECTRON_MASS;
     electrons.N = N_particles;
-    init_species(&electrons, dx*0.1f, dy*0.1f, dz*0.1f);
+    init_species(&electrons, dx*0.1f, dy*0.1f, dz*0.1f, 0, 0, 0);
 
     Species ions;
-    ions.q = +ELECTRON_CHARGE;
+    ions.q = ELECTRON_CHARGE;
     ions.m = PROTON_MASS;
     ions.N = N_particles;
-    init_species(&ions, dx*0.05f, dx*0.05f, dx*0.05f);
+    init_species(&ions, dx*0.05f, dx*0.05f, dx*0.05f, 0, 0, 0);
 
     CUDA_ERROR(cudaGetLastError());
     dump_position_data(&ions, "data/ions_positions.dat");
