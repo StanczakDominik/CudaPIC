@@ -25,6 +25,11 @@ __global__ void InitParticleArrays(Particle *d_p, float shiftx, float shifty, fl
     }
 }
 
+__device__ int ijk_to_n(int i, int j, int k)
+{
+    return N_grid * N_grid * (k%N_grid) + N_grid * (j%N_grid) + (i%N_grid);
+}
+
 __global__ void scatter_charge(Particle *d_P, float q, float* d_rho){
     int n = blockIdx.x*blockDim.x + threadIdx.x;
 
@@ -42,17 +47,18 @@ __global__ void scatter_charge(Particle *d_P, float q, float* d_rho){
     float Zr = position_in_cell(z)/dz;
     float Zl = 1 - Zr;
 
-    //this part is literally hitler - not just unreadable but slow af
     //TODO: redo this using a reduce
-    atomicAdd(&(d_rho[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j)%N_grid) + ((i)%N_grid)]), q*Xl*Yl*Zl);
-    atomicAdd(&(d_rho[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j)%N_grid) + ((i+1)%N_grid)]), q*Xr*Yl*Zl);
-    atomicAdd(&(d_rho[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j+1)%N_grid) + ((i)%N_grid)]), q*Xl*Yr*Zl);
-    atomicAdd(&(d_rho[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j)%N_grid) + ((i)%N_grid)]), q*Xl*Yl*Zr);
-    atomicAdd(&(d_rho[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j+1)%N_grid) + ((i+1)%N_grid)]), q*Xr*Yr*Zl);
-    atomicAdd(&(d_rho[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j)%N_grid) + ((i+1)%N_grid)]), q*Xr*Yl*Zr);
-    atomicAdd(&(d_rho[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j+1)%N_grid) + ((i)%N_grid)]), q*Xl*Yr*Zr);
-    atomicAdd(&(d_rho[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j+1)%N_grid) + ((i+1)%N_grid)]), q*Xr*Yr*Zr);
+    atomicAdd(&(d_rho[ijk_to_n(i,j,k)]),       q*Xl*Yl*Zl);
+    atomicAdd(&(d_rho[ijk_to_n(i+1,j,k)]),     q*Xr*Yl*Zl);
+    atomicAdd(&(d_rho[ijk_to_n(i,j+1,k)]),     q*Xl*Yr*Zl);
+    atomicAdd(&(d_rho[ijk_to_n(i,j,k+1)]),     q*Xl*Yl*Zr);
+    atomicAdd(&(d_rho[ijk_to_n(i+1,j+1,k)]),   q*Xr*Yr*Zl);
+    atomicAdd(&(d_rho[ijk_to_n(i+1,j,k+1)]),   q*Xr*Yl*Zr);
+    atomicAdd(&(d_rho[ijk_to_n(i,j+1,k+1)]),   q*Xl*Yr*Zr);
+    atomicAdd(&(d_rho[ijk_to_n(i+1,j+1,k+1)]), q*Xr*Yr*Zr);
 }
+
+
 __device__ float gather_grid_to_particle(Particle *p, float *grid){
     float x = p->x;
     float y = p->y;
@@ -69,16 +75,14 @@ __device__ float gather_grid_to_particle(Particle *p, float *grid){
     float Zl = 1 - Zr;
 
     float interpolated_scalar = 0.0f;
-    //this part is also hitler but not as much
-    //TODO: zafunkcjować ten kawałek
-    interpolated_scalar += grid[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j)%N_grid) + ((i)%N_grid)]*Xl*Yl*Zl;
-    interpolated_scalar += grid[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j)%N_grid) + ((i+1)%N_grid)]*Xr*Yl*Zl;
-    interpolated_scalar += grid[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j+1)%N_grid) + ((i)%N_grid)]*Xl*Yr*Zl;
-    interpolated_scalar += grid[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j)%N_grid) + ((i)%N_grid)]*Xl*Yl*Zr;
-    interpolated_scalar += grid[N_grid * N_grid * ((k)%N_grid) + N_grid * ((j+1)%N_grid) + ((i+1)%N_grid)]*Xr*Yr*Zl;
-    interpolated_scalar += grid[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j)%N_grid) + ((i+1)%N_grid)]*Xr*Yl*Zr;
-    interpolated_scalar += grid[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j+1)%N_grid) + ((i)%N_grid)]*Xl*Yr*Zr;
-    interpolated_scalar += grid[N_grid * N_grid * ((k+1)%N_grid) + N_grid * ((j+1)%N_grid) + ((i+1)%N_grid)]*Xr*Yr*Zr;
+    interpolated_scalar += grid[ijk_to_n(i,j,k)]      *Xl*Yl*Zl;
+    interpolated_scalar += grid[ijk_to_n(i+1,j,k)]    *Xr*Yl*Zl;
+    interpolated_scalar += grid[ijk_to_n(i,j+1,k)]    *Xl*Yr*Zl;
+    interpolated_scalar += grid[ijk_to_n(i,j,k+1)]    *Xl*Yl*Zr;
+    interpolated_scalar += grid[ijk_to_n(i+1,j+1,k)]  *Xr*Yr*Zl;
+    interpolated_scalar += grid[ijk_to_n(i+1,j,k+1)]  *Xr*Yl*Zr;
+    interpolated_scalar += grid[ijk_to_n(i,j+1,k+1)]  *Xl*Yr*Zr;
+    interpolated_scalar += grid[ijk_to_n(i+1,j+1,k+1)]*Xr*Yr*Zr;
     return interpolated_scalar;
 
 }
