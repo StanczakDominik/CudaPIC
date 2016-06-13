@@ -106,7 +106,13 @@ void init_grid(Grid *g, int N_grid, int N_grid_all){
     {
         g->kv[i] = (i-N_grid)*2*M_PI;
     }
+    g->dx = (L/float(N_grid));
+    g->dy = g->dx;
+    g->dz = g->dx;
 
+    g->gridThreads = dim3(N_grid/2,N_grid/2,N_grid/2);
+    g->gridBlocks = dim3((N_grid+g->gridThreads.x-1)/g->gridThreads.x,
+        (N_grid + g->gridThreads.y - 1)/g->gridThreads.y, (N_grid+g->gridThreads.z-1)/g->gridThreads.z);
 
     CUDA_ERROR(cudaMalloc((void**)&(g->d_kv), sizeof(float)*N_grid));
     CUDA_ERROR(cudaMemcpy(g->d_kv, g->kv, sizeof(float)*N_grid, cudaMemcpyHostToDevice));
@@ -128,28 +134,28 @@ void init_grid(Grid *g, int N_grid, int N_grid_all){
     cufftPlan3d(&(g->plan_backward), N_grid, N_grid, N_grid, CUFFT_C2R);
 }
 
-void field_solver(Grid *g, int N_grid, int N_grid_all, dim3 gridBlocks, dim3 gridThreads){
+void field_solver(Grid *g){
     cufftExecR2C(g->plan_forward, g->d_rho, g->d_F_rho);
     CUDA_ERROR(cudaDeviceSynchronize());
-    solve_poisson<<<gridBlocks, gridThreads>>>(g->d_kv, g->d_F_rho, g->d_F_Ex, g->d_F_Ey, g->d_F_Ez, N_grid, N_grid_all);
+    solve_poisson<<<g->gridBlocks, g->gridThreads>>>(g->d_kv, g->d_F_rho, g->d_F_Ex, g->d_F_Ey, g->d_F_Ez, g->N_grid, g->N_grid_all);
     CUDA_ERROR(cudaDeviceSynchronize());
     cufftExecC2R(g->plan_backward, g->d_F_Ex, g->d_Ex);
     cufftExecC2R(g->plan_backward, g->d_F_Ey, g->d_Ey);
     cufftExecC2R(g->plan_backward, g->d_F_Ez, g->d_Ez);
 
-    scale_down_after_fft<<<gridBlocks, gridThreads>>>(g->d_Ex, g->d_Ey, g->d_Ez, N_grid, N_grid_all);
+    scale_down_after_fft<<<g->gridBlocks, g->gridThreads>>>(g->d_Ex, g->d_Ey, g->d_Ez, g->N_grid, g->N_grid_all);
     CUDA_ERROR(cudaDeviceSynchronize());
 }
 
-void dump_density_data(Grid *g, char* name, int N_grid, int N_grid_all){
+void dump_density_data(Grid *g, char* name){
     printf("dumping\n");
-    CUDA_ERROR(cudaMemcpy(g->rho, g->d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(g->Ex, g->d_Ex, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->rho, g->d_rho, sizeof(float)*g->N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ex, g->d_Ex, sizeof(float)*g->N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*g->N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*g->N_grid_all, cudaMemcpyDeviceToHost));
     FILE *density_data = fopen(name, "w");
     float rho_total = 0.0f;
-    for (int n = 0; n < N_grid_all; n++)
+    for (int n = 0; n < g->N_grid_all; n++)
     {
         fprintf(density_data, "%f %.2f %.2f %.2f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
         rho_total += g->rho[n];
@@ -157,16 +163,19 @@ void dump_density_data(Grid *g, char* name, int N_grid, int N_grid_all){
     printf("rho total: %f\n", rho_total);
 }
 
-void dump_running_density_data(Grid *g, char* name, int N_grid, int N_grid_all){
-    CUDA_ERROR(cudaMemcpy(g->rho, g->d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(g->Ex, g->d_Ex, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+void dump_running_density_data(Grid *g, char* name){
+    CUDA_ERROR(cudaMemcpy(g->rho, g->d_rho, sizeof(float)*g->N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ex, g->d_Ex, sizeof(float)*g->N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*g->N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*g->N_grid_all, cudaMemcpyDeviceToHost));
     FILE *density_data = fopen(name, "w");
-    for (int n = 0; n < N_grid_all; n++)
+    float rho_total = 0.0f;
+    for (int n = 0; n < g->N_grid_all; n++)
     {
         fprintf(density_data, "%f %.2f %.2f %.2f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
+        rho_total += g->rho[n];
     }
+    printf("rho total: %f\n", rho_total);
 }
 
 
@@ -175,40 +184,40 @@ void dump_running_density_data(Grid *g, char* name, int N_grid, int N_grid_all){
 *   DEBUG SOLVERS
 *
 */
-void debug_field_solver_uniform(Grid *g, int N_grid, int N_grid_all){
-    float* linear_field_x = new float[N_grid_all];
-    float* linear_field_y = new float[N_grid_all];
-    float* linear_field_z = new float[N_grid_all];
-    for(int i = 0; i<N_grid;  i++){
-        for(int j = 0; j<N_grid;  j++){
-            for(int k = 0; k<N_grid;  k++){
-                int index = i*N_grid*N_grid + j*N_grid + k;
+void debug_field_solver_uniform(Grid *g){
+    float* linear_field_x = new float[g->N_grid_all];
+    float* linear_field_y = new float[g->N_grid_all];
+    float* linear_field_z = new float[g->N_grid_all];
+    for(int i = 0; i<g->N_grid;  i++){
+        for(int j = 0; j<g->N_grid;  j++){
+            for(int k = 0; k<g->N_grid;  k++){
+                int index = i*g->N_grid*g->N_grid + j*g->N_grid + k;
                 linear_field_x[index] = 1000;
                 linear_field_y[index] = 0;
                 linear_field_z[index] = 0;
             }
         }
     }
-    cudaMemcpy(g->d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-    cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-    cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(g->d_Ex, linear_field_x, sizeof(float)*g->N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*g->N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*g->N_grid_all, cudaMemcpyHostToDevice);
 }
-void debug_field_solver_sine(Grid *g, int N_grid, int N_grid_all)
+void debug_field_solver_sine(Grid *g)
 {
-    float* linear_field_x = new float[N_grid_all];
-    float* linear_field_y = new float[N_grid_all];
-    float* linear_field_z = new float[N_grid_all];
-    for(int i = 0; i<N_grid;  i++){
-        for(int j = 0; j<N_grid;  j++){
-            for(int k = 0; k<N_grid;  k++){
-                int index = i*N_grid*N_grid + j*N_grid + k;
-                linear_field_x[index] = 1000*sin(2*M_PI*((float)k/(float)N_grid));
-                linear_field_y[index] = 1000*sin(2*M_PI*((float)j/(float)N_grid));
-                linear_field_z[index] = 1000*sin(2*M_PI*((float)i/(float)N_grid));
+    float* linear_field_x = new float[g->N_grid_all];
+    float* linear_field_y = new float[g->N_grid_all];
+    float* linear_field_z = new float[g->N_grid_all];
+    for(int i = 0; i<g->N_grid;  i++){
+        for(int j = 0; j<g->N_grid;  j++){
+            for(int k = 0; k<g->N_grid;  k++){
+                int index = i*g->N_grid*g->N_grid + j*g->N_grid + k;
+                linear_field_x[index] = 1000*sin(2*M_PI*((float)k/(float)g->N_grid));
+                linear_field_y[index] = 1000*sin(2*M_PI*((float)j/(float)g->N_grid));
+                linear_field_z[index] = 1000*sin(2*M_PI*((float)i/(float)g->N_grid));
             }
         }
     }
-    cudaMemcpy(g->d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-    cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-    cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(g->d_Ex, linear_field_x, sizeof(float)*g->N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*g->N_grid_all, cudaMemcpyHostToDevice);
+    cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*g->N_grid_all, cudaMemcpyHostToDevice);
 }

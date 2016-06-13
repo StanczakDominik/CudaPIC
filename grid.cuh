@@ -15,6 +15,16 @@ struct Grid{
     float *d_Ey;
     float *d_Ez;
 
+    float dx;
+    float dy;
+    float dz;
+
+    int N_grid;
+    int N_grid_all;
+
+    dim3 gridBlocks;
+    dim3 gridThreads;
+
     //fourier transformed versions of grid quantities, for fields solver
     cufftComplex *d_F_rho;
     cufftComplex *d_F_Ex;
@@ -36,12 +46,12 @@ __global__ void complex2real(cufftComplex *input, float *output, int N_grid, int
 __global__ void scale_down_after_fft(float *d_Ex, float *d_Ey, float *d_Ez, int N_grid, int N_grid_all);
 __global__ void set_grid_array_to_value(float *arr, float value, int N_grid, int N_grid_all);
 
-void init_grid(Grid *g, int N_grid, int N_grid_all);
-void field_solver(Grid *g, int N_grid, int N_grid_all, dim3 gridBlocks, dim3 gridThreads);
-void dump_density_data(Grid *g, char* name, int N_grid, int N_grid_all);
-void dump_running_density_data(Grid *g, char* name, int N_grid, int N_grid_all);
+void init_grid(Grid *g);
+void field_solver(Grid *g);
+void dump_density_data(Grid *g, char* name);
+void dump_running_density_data(Grid *g, char* name);
 
-void debug_field_solver_uniform(Grid *g, int N_grid, int N_grid_all);
-void debug_field_solver_sine(Grid *g, int N_grid, int N_grid_all);
+void debug_field_solver_uniform(Grid *g);
+void debug_field_solver_sine(Grid *g);
 
 #endif
