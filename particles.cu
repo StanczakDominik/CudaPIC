@@ -40,14 +40,14 @@ __global__ void scatter_charge_kernel(Particle *d_P, float q, float* d_rho, int 
     float Zl = 1 - Zr;
 
     //TODO: redo this using a reduce
-    atomicAdd(&(d_rho[ijk_to_n(i,j,k, N_grid)]),       q*Xl*Yl*Zl);
-    atomicAdd(&(d_rho[ijk_to_n(i+1,j,k, N_grid)]),     q*Xr*Yl*Zl);
-    atomicAdd(&(d_rho[ijk_to_n(i,j+1,k, N_grid)]),     q*Xl*Yr*Zl);
-    atomicAdd(&(d_rho[ijk_to_n(i,j,k+1, N_grid)]),     q*Xl*Yl*Zr);
-    atomicAdd(&(d_rho[ijk_to_n(i+1,j+1,k, N_grid)]),   q*Xr*Yr*Zl);
-    atomicAdd(&(d_rho[ijk_to_n(i+1,j,k+1, N_grid)]),   q*Xr*Yl*Zr);
-    atomicAdd(&(d_rho[ijk_to_n(i,j+1,k+1, N_grid)]),   q*Xl*Yr*Zr);
-    atomicAdd(&(d_rho[ijk_to_n(i+1,j+1,k+1, N_grid)]), q*Xr*Yr*Zr);
+    atomicAdd(&(d_rho[ijk_to_n(i, j, k, N_grid)]),       q*Xl*Yl*Zl);
+    atomicAdd(&(d_rho[ijk_to_n(i+1, j, k, N_grid)]),     q*Xr*Yl*Zl);
+    atomicAdd(&(d_rho[ijk_to_n(i, j+1, k, N_grid)]),     q*Xl*Yr*Zl);
+    atomicAdd(&(d_rho[ijk_to_n(i, j, k+1, N_grid)]),     q*Xl*Yl*Zr);
+    atomicAdd(&(d_rho[ijk_to_n(i+1, j+1, k, N_grid)]),   q*Xr*Yr*Zl);
+    atomicAdd(&(d_rho[ijk_to_n(i+1, j, k+1, N_grid)]),   q*Xr*Yl*Zr);
+    atomicAdd(&(d_rho[ijk_to_n(i, j+1, k+1, N_grid)]),   q*Xl*Yr*Zr);
+    atomicAdd(&(d_rho[ijk_to_n(i+1, j+1, k+1, N_grid)]), q*Xr*Yr*Zr);
 }
 
 void scatter_charge(Species *s, Grid *g)
@@ -72,14 +72,14 @@ __device__ float gather_grid_to_particle(Particle *p, float *grid, int N_grid, f
     float Zl = 1 - Zr;
 
     float interpolated_scalar = 0.0f;
-    interpolated_scalar += grid[ijk_to_n(i,j,k, N_grid)]      *Xl*Yl*Zl;
-    interpolated_scalar += grid[ijk_to_n(i+1,j,k, N_grid)]    *Xr*Yl*Zl;
-    interpolated_scalar += grid[ijk_to_n(i,j+1,k, N_grid)]    *Xl*Yr*Zl;
-    interpolated_scalar += grid[ijk_to_n(i,j,k+1, N_grid)]    *Xl*Yl*Zr;
-    interpolated_scalar += grid[ijk_to_n(i+1,j+1,k, N_grid)]  *Xr*Yr*Zl;
-    interpolated_scalar += grid[ijk_to_n(i+1,j,k+1, N_grid)]  *Xr*Yl*Zr;
-    interpolated_scalar += grid[ijk_to_n(i,j+1,k+1, N_grid)]  *Xl*Yr*Zr;
-    interpolated_scalar += grid[ijk_to_n(i+1,j+1,k+1, N_grid)]*Xr*Yr*Zr;
+    interpolated_scalar += grid[ijk_to_n(i, j, k, N_grid)]      *Xl*Yl*Zl;
+    interpolated_scalar += grid[ijk_to_n(i+1, j, k, N_grid)]    *Xr*Yl*Zl;
+    interpolated_scalar += grid[ijk_to_n(i, j+1, k, N_grid)]    *Xl*Yr*Zl;
+    interpolated_scalar += grid[ijk_to_n(i, j, k+1, N_grid)]    *Xl*Yl*Zr;
+    interpolated_scalar += grid[ijk_to_n(i+1, j+1, k, N_grid)]  *Xr*Yr*Zl;
+    interpolated_scalar += grid[ijk_to_n(i+1, j, k+1, N_grid)]  *Xr*Yl*Zr;
+    interpolated_scalar += grid[ijk_to_n(i, j+1, k+1, N_grid)]  *Xl*Yr*Zr;
+    interpolated_scalar += grid[ijk_to_n(i+1, j+1, k+1, N_grid)]*Xr*Yr*Zr;
     return interpolated_scalar;
 
 }

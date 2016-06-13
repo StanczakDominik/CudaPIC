@@ -6,7 +6,7 @@
 using namespace std;
 
 #define SNAP_EVERY 1
-#define NT 100
+#define NT 10
 #define dt 0.1f
 
 #define N_particles_1_axis 64
