@@ -9,7 +9,7 @@ main.out: main.o particles.o grid.o helpers.o
 main.o: main.cu grid.o particles.o helpers.o
 	$(NVCC) $(NVCC_FLAGS) -c $< -o $@
 
-particles.o: particles.cu particles.cuh grid.o helpers.o
+particles.o: particles.cu particles.cuh grid.cuh helpers.o
 	$(NVCC) $(NVCC_FLAGS) -c $< -o $@
 
 grid.o: grid.cu grid.cuh helpers.o

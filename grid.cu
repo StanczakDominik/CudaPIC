@@ -21,7 +21,7 @@ __global__ void solve_poisson(float *d_kv, cufftComplex *d_F_rho,
         }
         else
         {
-            k2inverse = 1/(d_kv[i]*d_kv[i] + d_kv[j]*d_kv[j] + d_kv[k]*d_kv[k]);
+            k2inverse = 1.0f/(d_kv[i]*d_kv[i] + d_kv[j]*d_kv[j] + d_kv[k]*d_kv[k]);
         }
 
         //see: Birdsall Langdon, Plasma Physics via Computer Simulation, page 19
@@ -152,10 +152,14 @@ void field_solver(Grid *g){
     cufftExecR2C(g->plan_forward, g->d_rho, g->d_F_rho);
     CUDA_ERROR(cudaDeviceSynchronize());
     solve_poisson<<<g->gridBlocks, g->gridThreads>>>(g->d_kv, g->d_F_rho, g->d_F_Ex, g->d_F_Ey, g->d_F_Ez, g->N_grid, g->N_grid_all);
+        //gridBlocks, gridThreads allocated
+        //g->d_kv calculated looks like properly
+        //d->F_rho
     CUDA_ERROR(cudaDeviceSynchronize());
     cufftExecC2R(g->plan_backward, g->d_F_Ex, g->d_Ex);
     cufftExecC2R(g->plan_backward, g->d_F_Ey, g->d_Ey);
     cufftExecC2R(g->plan_backward, g->d_F_Ez, g->d_Ez);
+    CUDA_ERROR(cudaDeviceSynchronize());
 
     scale_down_after_fft<<<g->gridBlocks, g->gridThreads>>>(g->d_Ex, g->d_Ey, g->d_Ez, g->N_grid, g->N_grid_all);
     CUDA_ERROR(cudaDeviceSynchronize());
