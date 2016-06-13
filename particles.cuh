@@ -50,4 +50,7 @@ void init_species(Species *s, float shiftx, float shifty, float shiftz, float vx
 void dump_position_data(Species *s, char* name);
 __global__ void diagnostic_reduction_kernel(Species *s);
 void diagnostics(Species *s);
+__device__ int position_to_grid_index(float X, float dx);
+__device__ float position_in_cell(float x, float dx);
+
 #endif

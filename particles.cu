@@ -3,6 +3,14 @@
 dim3 particleThreads(N_particles_1_axis);
 dim3 particleBlocks((N_particles+particleThreads.x - 1)/particleThreads.x);
 
+__device__ int position_to_grid_index(float X, float dx){
+    return int(X/dx);
+}
+
+__device__ float position_in_cell(float x, float dx){
+    int grid_index = position_to_grid_index(x);
+    return x - grid_index*dx;
+}
 
 __global__ void InitParticleArrays(Particle *d_p, float shiftx, float shifty, float shiftz, float vx, float vy, float vz){
     int n = blockDim.x * blockIdx.x + threadIdx.x;

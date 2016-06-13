@@ -1,21 +1,13 @@
 #include "grid.cuh"
 
-dim3 gridThreads(N_grid/2,N_grid/2,N_grid/2);
-dim3 gridBlocks((N_grid+gridThreads.x-1)/gridThreads.x, (N_grid + gridThreads.y - 1)/gridThreads.y, (N_grid+gridThreads.z-1)/gridThreads.z);
 
-__device__ int position_to_grid_index(float X){
-    return int(X/dx);
-}
-__device__ float position_in_cell(float x){
-    int grid_index = position_to_grid_index(x);
-    return x - grid_index*dx;
-}
-
-__global__ void solve_poisson(float *d_kv, cufftComplex *d_fourier_rho, cufftComplex *d_fourier_Ex, cufftComplex *d_fourier_Ey, cufftComplex *d_fourier_Ez){
+__global__ void solve_poisson(float *d_kv, cufftComplex *d_F_rho,
+        cufftComplex *d_F_Ex, cufftComplex *d_F_Ey, cufftComplex *d_F_Ez,
+        int N_grid, int N_grid_all){
     /*solve poisson equation
     d_kv: wave vector
-    d_fourier_rho: complex array of fourier transformed charge densities
-    d_fourier_E(i):
+    d_F_rho: complex array of fourier transformed charge densities
+    d_F_E(i):
     */
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
@@ -23,25 +15,30 @@ __global__ void solve_poisson(float *d_kv, cufftComplex *d_fourier_rho, cufftCom
 
     int index = k*N_grid*N_grid + j*N_grid + i;
     if(i<N_grid && j<N_grid && k<N_grid){
-	//wave vector magnitude squared
-        float k2 = d_kv[i]*d_kv[i] + d_kv[j]*d_kv[j] + d_kv[k]*d_kv[k];
+        float k2inverse; //wave vector magnitude squared
         if (i==0 && j==0 && k ==0)    {
-            k2 = 1.0f; //dodge a bullet with a division by zero
+            k2inverse = 1.0f; //dodge a bullet with a division by zero
+        }
+        else
+        {
+            k2inverse = 1/(d_kv[i]*d_kv[i] + d_kv[j]*d_kv[j] + d_kv[k]*d_kv[k]);
         }
 
         //see: Birdsall Langdon, Plasma Physics via Computer Simulation, page 19
-        d_fourier_Ex[index].x = -d_kv[i]*d_fourier_rho[index].x/k2/EPSILON_ZERO;
-        d_fourier_Ex[index].y = -d_kv[i]*d_fourier_rho[index].y/k2/EPSILON_ZERO;
+        d_F_Ex[index].x = -d_kv[i]*d_F_rho[index].x*k2inverse/EPSILON_ZERO;
+        d_F_Ex[index].y = -d_kv[i]*d_F_rho[index].y*k2inverse/EPSILON_ZERO;
 
-        d_fourier_Ey[index].x = -d_kv[j]*d_fourier_rho[index].x/k2/EPSILON_ZERO;
-        d_fourier_Ey[index].y = -d_kv[j]*d_fourier_rho[index].y/k2/EPSILON_ZERO;
+        d_F_Ey[index].x = -d_kv[j]*d_F_rho[index].x*k2inverse/EPSILON_ZERO;
+        d_F_Ey[index].y = -d_kv[j]*d_F_rho[index].y*k2inverse/EPSILON_ZERO;
 
-        d_fourier_Ez[index].x = -d_kv[k]*d_fourier_rho[index].x/k2/EPSILON_ZERO;
-        d_fourier_Ez[index].y = -d_kv[k]*d_fourier_rho[index].y/k2/EPSILON_ZERO;
+        d_F_Ez[index].x = -d_kv[k]*d_F_rho[index].x*k2inverse/EPSILON_ZERO;
+        d_F_Ez[index].y = -d_kv[k]*d_F_rho[index].y*k2inverse/EPSILON_ZERO;
+
+
     }
 }
 
-__global__ void real2complex(float *input, cufftComplex *output){
+__global__ void real2complex(float *input, cufftComplex *output, int N_grid){
     //converts array of floats to array of real complex numbers
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
@@ -53,7 +50,7 @@ __global__ void real2complex(float *input, cufftComplex *output){
         output[index].y = 0.0f;
     }
 }
-__global__ void complex2real(cufftComplex *input, float *output){
+__global__ void complex2real(cufftComplex *input, float *output, int N_grid, int N_grid_all){
     //converts array of complex inputs to floats (discards)
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
@@ -65,7 +62,7 @@ __global__ void complex2real(cufftComplex *input, float *output){
     }
 }
 
-__global__ void scale_down_after_fft(float *d_Ex, float *d_Ey, float *d_Ez){
+__global__ void scale_down_after_fft(float *d_Ex, float *d_Ey, float *d_Ez, int N_grid, int N_grid_all){
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
@@ -78,7 +75,7 @@ __global__ void scale_down_after_fft(float *d_Ex, float *d_Ey, float *d_Ez){
     }
 }
 
-__global__ void set_grid_array_to_value(float *arr, float value){
+__global__ void set_grid_array_to_value(float *arr, float value, int N_grid){
     int i = blockIdx.x*blockDim.x + threadIdx.x;
     int j = blockIdx.y*blockDim.y + threadIdx.y;
     int k = blockIdx.z*blockDim.z + threadIdx.z;
@@ -89,7 +86,12 @@ __global__ void set_grid_array_to_value(float *arr, float value){
     }
 }
 
-void init_grid(Grid *g){
+
+/*
+* HIGH LEVEL KERNEL WRAPPERS
+*/
+
+void init_grid(Grid *g, int N_grid, int N_grid_all){
     g->rho = new float[N_grid_all];
     g->Ex = new float[N_grid_all];
     g->Ey = new float[N_grid_all];
@@ -109,10 +111,10 @@ void init_grid(Grid *g){
     CUDA_ERROR(cudaMalloc((void**)&(g->d_kv), sizeof(float)*N_grid));
     CUDA_ERROR(cudaMemcpy(g->d_kv, g->kv, sizeof(float)*N_grid, cudaMemcpyHostToDevice));
 
-    CUDA_ERROR(cudaMalloc((void**)&(g->d_fourier_rho), sizeof(cufftComplex)*N_grid_all));
-    CUDA_ERROR(cudaMalloc((void**)&(g->d_fourier_Ex), sizeof(cufftComplex)*N_grid_all));
-    CUDA_ERROR(cudaMalloc((void**)&(g->d_fourier_Ey), sizeof(cufftComplex)*N_grid_all));
-    CUDA_ERROR(cudaMalloc((void**)&(g->d_fourier_Ez), sizeof(cufftComplex)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_F_rho), sizeof(cufftComplex)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_F_Ex), sizeof(cufftComplex)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_F_Ey), sizeof(cufftComplex)*N_grid_all));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_F_Ez), sizeof(cufftComplex)*N_grid_all));
     CUDA_ERROR(cudaMalloc((void**)&(g->d_rho), sizeof(float)*N_grid_all));
     CUDA_ERROR(cudaMemcpy(g->d_rho, g->rho, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice));
     CUDA_ERROR(cudaMalloc((void**)&(g->d_Ex), sizeof(float)*N_grid_all));
@@ -126,8 +128,54 @@ void init_grid(Grid *g){
     cufftPlan3d(&(g->plan_backward), N_grid, N_grid, N_grid, CUFFT_C2R);
 }
 
+void field_solver(Grid *g, int N_grid, int N_grid_all, dim3 gridBlocks, dim3 gridThreads){
+    cufftExecR2C(g->plan_forward, g->d_rho, g->d_F_rho);
+    CUDA_ERROR(cudaDeviceSynchronize());
+    solve_poisson<<<gridBlocks, gridThreads>>>(g->d_kv, g->d_F_rho, g->d_F_Ex, g->d_F_Ey, g->d_F_Ez, N_grid, N_grid_all);
+    CUDA_ERROR(cudaDeviceSynchronize());
+    cufftExecC2R(g->plan_backward, g->d_F_Ex, g->d_Ex);
+    cufftExecC2R(g->plan_backward, g->d_F_Ey, g->d_Ey);
+    cufftExecC2R(g->plan_backward, g->d_F_Ez, g->d_Ez);
 
-void debug_field_solver_uniform(Grid *g){
+    scale_down_after_fft<<<gridBlocks, gridThreads>>>(g->d_Ex, g->d_Ey, g->d_Ez, N_grid, N_grid_all);
+    CUDA_ERROR(cudaDeviceSynchronize());
+}
+
+void dump_density_data(Grid *g, char* name, int N_grid, int N_grid_all){
+    printf("dumping\n");
+    CUDA_ERROR(cudaMemcpy(g->rho, g->d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ex, g->d_Ex, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    FILE *density_data = fopen(name, "w");
+    float rho_total = 0.0f;
+    for (int n = 0; n < N_grid_all; n++)
+    {
+        fprintf(density_data, "%f %.2f %.2f %.2f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
+        rho_total += g->rho[n];
+    }
+    printf("rho total: %f\n", rho_total);
+}
+
+void dump_running_density_data(Grid *g, char* name, int N_grid, int N_grid_all){
+    CUDA_ERROR(cudaMemcpy(g->rho, g->d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ex, g->d_Ex, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
+    FILE *density_data = fopen(name, "w");
+    for (int n = 0; n < N_grid_all; n++)
+    {
+        fprintf(density_data, "%f %.2f %.2f %.2f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
+    }
+}
+
+
+
+/*
+*   DEBUG SOLVERS
+*
+*/
+void debug_field_solver_uniform(Grid *g, int N_grid, int N_grid_all){
     float* linear_field_x = new float[N_grid_all];
     float* linear_field_y = new float[N_grid_all];
     float* linear_field_z = new float[N_grid_all];
@@ -138,7 +186,6 @@ void debug_field_solver_uniform(Grid *g){
                 linear_field_x[index] = 1000;
                 linear_field_y[index] = 0;
                 linear_field_z[index] = 0;
-                // printf("%d %f %f %f\n", index, linear_field_x[index], linear_field_y[index],linear_field_z[index]);
             }
         }
     }
@@ -146,7 +193,7 @@ void debug_field_solver_uniform(Grid *g){
     cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
     cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
 }
-void debug_field_solver_sine(Grid *g)
+void debug_field_solver_sine(Grid *g, int N_grid, int N_grid_all)
 {
     float* linear_field_x = new float[N_grid_all];
     float* linear_field_y = new float[N_grid_all];
@@ -164,46 +211,4 @@ void debug_field_solver_sine(Grid *g)
     cudaMemcpy(g->d_Ex, linear_field_x, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
     cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
     cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice);
-}
-void field_solver(Grid *g){
-    cufftExecR2C(g->plan_forward, g->d_rho, g->d_fourier_rho);
-    CUDA_ERROR(cudaDeviceSynchronize());
-    solve_poisson<<<gridBlocks, gridThreads>>>(g->d_kv, g->d_fourier_rho, g->d_fourier_Ex, g->d_fourier_Ey, g->d_fourier_Ez);
-    CUDA_ERROR(cudaDeviceSynchronize());
-    cufftExecC2R(g->plan_backward, g->d_fourier_Ex, g->d_Ex);
-    cufftExecC2R(g->plan_backward, g->d_fourier_Ey, g->d_Ey);
-    cufftExecC2R(g->plan_backward, g->d_fourier_Ez, g->d_Ez);
-
-    scale_down_after_fft<<<gridBlocks, gridThreads>>>(g->d_Ex, g->d_Ey, g->d_Ez);
-    CUDA_ERROR(cudaDeviceSynchronize());
-}
-
-void dump_density_data(Grid *g, char* name){
-    printf("dumping\n");
-    CUDA_ERROR(cudaMemcpy(g->rho, g->d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(g->Ex, g->d_Ex, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    FILE *density_data = fopen(name, "w");
-    float rho_total = 0.0f;
-    for (int n = 0; n < N_grid_all; n++)
-    {
-        fprintf(density_data, "%f %.2f %.2f %.2f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
-        // printf("%d %f %f %f %f\n", n, g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
-        rho_total += g->rho[n];
-    }
-    printf("rho total: %f\n", rho_total);
-}
-
-void dump_running_density_data(Grid *g, char* name){
-    CUDA_ERROR(cudaMemcpy(g->rho, g->d_rho, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(g->Ex, g->d_Ex, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*N_grid_all, cudaMemcpyDeviceToHost));
-    FILE *density_data = fopen(name, "w");
-    for (int n = 0; n < N_grid_all; n++)
-    {
-        fprintf(density_data, "%f %.0f %.0f %.0f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
-    }
-    // fclose(density_data);
 }

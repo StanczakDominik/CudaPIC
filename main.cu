@@ -6,6 +6,16 @@
 using namespace std;
 
 #define SNAP_EVERY 50
+#define NT 10000
+#define dt 0.01f
+#define N_grid 16
+#define N_grid_all (N_grid *N_grid * N_grid)
+dim3 gridThreads(N_grid/2,N_grid/2,N_grid/2);
+dim3 gridBlocks((N_grid+gridThreads.x-1)/gridThreads.x, (N_grid + gridThreads.y - 1)/gridThreads.y, (N_grid+gridThreads.z-1)/gridThreads.z);
+#define dx (L/float(N_grid))
+#define dy dx
+#define dz dx
+
 
 void init_timestep(Grid *g, Species *electrons,  Species *ions){
     set_grid_array_to_value<<<gridBlocks, gridThreads>>>(g->d_rho, 0);
