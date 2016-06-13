@@ -12,4 +12,7 @@
 
 void CUDA_ERROR( cudaError_t err);
 
+#define position_to_grid_index(x, dx) ((int)(x/dx))
+#define position_in_cell(x, dx) ((float)(x-dx*(int)(x/dx)))
+#define ijk_to_n(i, j, k, N_grid) (N_grid * N_grid * (k%N_grid) + N_grid * (j%N_grid) + (i%N_grid))
 #endif

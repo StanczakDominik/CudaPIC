@@ -4,13 +4,6 @@
 #include "grid.cuh"
 #include "helpers.cuh"
 
-#define N_particles_1_axis 64
-#define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
-
-
-extern dim3 particleThreads;
-extern dim3 particleBlocks;
-
 struct Particle{
     //keeps information about the position of one particle in (6D) phase space (positions, velocities)
     float x;
@@ -27,10 +20,15 @@ struct Species{
     float q; //charge
 
     //number of particles in group: not fully used yet
+    long int N_particles_1_axis;
+    long int N_particles;
     long int N;
 
     Particle *particles;
     Particle *d_particles;
+
+    dim3 particleThreads;
+    dim3 particleBlocks;
 
     // Particle total_values;
     // float total_v2;
@@ -40,17 +38,12 @@ struct Species{
     // float potential_E;
 };
 
-
-__global__ void InitParticleArrays(Particle *d_p, float shiftx, float shifty, float shiftz, float vx, float vy, float vz);
-__global__ void scatter_charge(Particle *d_P, float q, float* d_rho);
-__device__ float gather_grid_to_particle(Particle *p, float *grid);
-__global__ void InitialVelocityStep(Particle *d_p, float q, float m, float *d_Ex, float *d_Ey, float *d_Ez);
-__global__ void ParticleKernel(Particle *d_p, float q, float m, float *d_Ex, float *d_Ey, float *d_Ez);
-void init_species(Species *s, float shiftx, float shifty, float shiftz, float vx, float vy, float vz);
+void init_species(Species *s, float shiftx, float shifty, float shiftz,
+    float vx, float vy, float vz,
+    int N_particles_1_axis, int N_grid, float dx);
 void dump_position_data(Species *s, char* name);
-__global__ void diagnostic_reduction_kernel(Species *s);
-void diagnostics(Species *s);
-__device__ int position_to_grid_index(float X, float dx);
-__device__ float position_in_cell(float x, float dx);
+void scatter_charge(Species *s, Grid*g);
+void InitialVelocityStep(Species *s, Grid *g, float dt);
+void SpeciesPush(Species *s, Grid *g, float dt);
 
 #endif
