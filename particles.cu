@@ -1,5 +1,19 @@
 #include "particles.cuh"
 
+__device__ int position_to_grid_index(float x, float dx)
+{
+    return x/dx;
+}
+__device__ float position_in_cell(float x, float dx)
+{
+    return x - dx * (int)(x/dx);
+}
+__device__ int ijk_to_n(int i, int j, int k, int N_grid)
+{
+    return (N_grid * N_grid * (k%N_grid) + N_grid * (j%N_grid) + (i%N_grid));
+}
+
+
 __global__ void InitParticleArrays(Particle *d_p, float shiftx, float shifty,
         float shiftz, float vx, float vy, float vz, int N_particles_1_axis, int N_particles){
     int n = blockDim.x * blockIdx.x + threadIdx.x;
