@@ -15,19 +15,14 @@ using namespace std;
 
 void init_timestep(Grid *g, Species *electrons,  Species *ions){
     reset_rho(g);
-    CUDA_ERROR(cudaDeviceSynchronize());
     scatter_charge(electrons, g);
-    CUDA_ERROR(cudaDeviceSynchronize());
     scatter_charge(ions, g);
-    CUDA_ERROR(cudaDeviceSynchronize());
 
     // debug_field_solver_uniform(g);
     field_solver(g);
-    CUDA_ERROR(cudaDeviceSynchronize());
 
     InitialVelocityStep(electrons, g, dt);
     InitialVelocityStep(ions, g, dt);
-    CUDA_ERROR(cudaDeviceSynchronize());
 }
 
 
@@ -36,21 +31,15 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
 	SpeciesPush(electrons, g, dt);
 	SpeciesPush(ions, g, dt);
 	//potential TODO: sort particles?????
-    CUDA_ERROR(cudaDeviceSynchronize());
     //2. clear charge density for scattering fields to particles charge
     reset_rho(g);
-    CUDA_ERROR(cudaDeviceSynchronize());
 
     //3. gather charge from new particle position to grid
     scatter_charge(electrons, g);
-    CUDA_ERROR(cudaDeviceSynchronize());
     scatter_charge(ions, g);
-    CUDA_ERROR(cudaDeviceSynchronize());
 
     //4. use charge density to calculate field
     field_solver(g);
-    CUDA_ERROR(cudaGetLastError());
-    CUDA_ERROR(cudaDeviceSynchronize());
 }
 
 int main(void){
@@ -64,6 +53,7 @@ int main(void){
 
     Grid g;
     init_grid(&g, N_grid);
+    CUDA_ERROR(cudaDeviceSynchronize());
 
     Species electrons;
     electrons.q = -ELECTRON_CHARGE;

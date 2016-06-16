@@ -63,6 +63,7 @@ __global__ void scatter_charge_kernel(Particle *d_P, float q, float* d_rho, int 
 
 void scatter_charge(Species *s, Grid *g)
 {
+    CUDA_ERROR(cudaDeviceSynchronize());
     scatter_charge_kernel<<<s->particleBlocks, s->particleThreads>>>(s->d_particles, s->q, g->d_rho, g->N_grid, g->dx);
 }
 

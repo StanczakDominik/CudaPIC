@@ -88,6 +88,7 @@ __global__ void set_grid_array_to_value(float *arr, float value, int N_grid){
 
 void reset_rho(Grid *g)
 {
+    CUDA_ERROR(cudaDeviceSynchronize());
     set_grid_array_to_value<<<g->gridBlocks, g->gridThreads>>>(g->d_rho, 0, g->N_grid);
 }
 
@@ -149,6 +150,7 @@ void init_grid(Grid *g, int N_grid){
 }
 
 void field_solver(Grid *g){
+    CUDA_ERROR(cudaDeviceSynchronize());
     cufftExecR2C(g->plan_forward, g->d_rho, g->d_F_rho);
     CUDA_ERROR(cudaDeviceSynchronize());
     solve_poisson<<<g->gridBlocks, g->gridThreads>>>(g->d_kv, g->d_F_rho, g->d_F_Ex, g->d_F_Ey, g->d_F_Ez, g->N_grid, g->N_grid_all);
