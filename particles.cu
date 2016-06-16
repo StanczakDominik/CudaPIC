@@ -1,15 +1,12 @@
 #include "particles.cuh"
 
-__device__ int position_to_grid_index(float x, float dx)
-{
+__device__ int position_to_grid_index(float x, float dx){
     return x/dx;
 }
-__device__ float position_in_cell(float x, float dx)
-{
+__device__ float position_in_cell(float x, float dx){
     return x - dx * (int)(x/dx);
 }
-__device__ int ijk_to_n(int i, int j, int k, int N_grid)
-{
+__device__ int ijk_to_n(int i, int j, int k, int N_grid){
     return (N_grid * N_grid * (k%N_grid) + N_grid * (j%N_grid) + (i%N_grid));
 }
 
@@ -140,6 +137,10 @@ __global__ void ParticleKernel(Particle *d_p, float q, float m,
        p->z = p->z + p->vz*dt;
        p->z = p->z - floor(p->z/L)*L;
 
+       float old_vx = p->vx;
+       float old_vy = p->vy;
+       float old_vz = p->vz;
+
        //gather electric field
        float Ex = gather_grid_to_particle(p, d_Ex, N_grid, dx);
        float Ey = gather_grid_to_particle(p, d_Ey, N_grid, dx);
@@ -149,6 +150,8 @@ __global__ void ParticleKernel(Particle *d_p, float q, float m,
        p->vx += dt*q/m*Ex;
        p->vy += dt*q/m*Ey;
        p->vz += dt*q/m*Ez;
+
+       float v2 = old_vx * p->vx + old_vy * p->vy + old_vz * p->vz;
    }
 }
 
