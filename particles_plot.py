@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import animation
 
-I = range(0, 1000, 1)
+I = range(0, 10, 1)
 names = ["electrons_positions_{}", "ions_positions_{}"]
 labels = ["Electrons", "Electrons"]
 colors = ["g", "b"]

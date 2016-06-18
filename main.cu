@@ -39,6 +39,7 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
     scatter_charge(ions, g);
 
     //4. use charge density to calculate field
+    // debug_field_solver_uniform(g);
     field_solver(g);
 }
 

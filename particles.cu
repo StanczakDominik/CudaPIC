@@ -30,41 +30,73 @@ __global__ void InitParticleArrays(Particle *d_p, float shiftx, float shifty,
         p->vx = vx;
         p->vy = vy;
         p->vz = vz;
+
+        // if (threadIdx.x == 0)
+        // {
+        //     printf("%d %f %f %f\n", blockIdx.x, p->x, p->y, p->z);
+        // }
     }
 }
 
-__global__ void scatter_charge_kernel(Particle *d_P, float q, float* d_rho, int N_grid, float dx){
+void init_species(Species *s, float shiftx, float shifty, float shiftz,
+        float vx, float vy, float vz,
+        int N_particles_1_axis, int N_grid, float dx){
+    s->N_particles_1_axis = N_particles_1_axis;
+    s->N_particles = N_particles_1_axis * N_particles_1_axis * N_particles_1_axis;
+    s->particles = new Particle[s->N_particles];
+
+    s->particleThreads = dim3(512);
+    s->particleBlocks = dim3((s->N_particles+s->particleThreads.x - 1)/s->particleThreads.x);
+
+    CUDA_ERROR(cudaMalloc((void**)&(s->d_particles), sizeof(Particle)*s->N_particles));
+    printf("initializing particles\n");
+    InitParticleArrays<<<s->particleBlocks, s->particleThreads>>>(s->d_particles, shiftx, shifty, shiftz, vx, vy, vz, s->N_particles_1_axis, s->N_particles);
+    printf("Blocks: %d %d %d Threads: %d %d %d \n",
+        s->particleBlocks.x,
+        s->particleBlocks.y,
+        s->particleBlocks.z,
+        s->particleThreads.x,
+        s->particleThreads.y,
+        s->particleThreads.z);
+    printf("Mass: %f Charge: %f N: %ld\n", s->m, s->q, s->N_particles);
+
+}
+
+__global__ void scatter_charge_kernel(Particle *d_P, float q, float* d_rho, int N_grid, float dx, int N_particles){
     int n = blockIdx.x*blockDim.x + threadIdx.x;
 
-    float x = d_P[n].x;
-    float y = d_P[n].y;
-    float z = d_P[n].z;
-    int i = position_to_grid_index(x, dx);
-    int j = position_to_grid_index(y, dx);
-    int k = position_to_grid_index(z, dx);
+    if (n < N_particles){
+        float x = d_P[n].x;
+        float y = d_P[n].y;
+        float z = d_P[n].z;
+        int i = position_to_grid_index(x, dx);
+        int j = position_to_grid_index(y, dx);
+        int k = position_to_grid_index(z, dx);
 
-    float Xr = position_in_cell(x, dx)/dx;
-    float Xl = 1 - Xr;
-    float Yr = position_in_cell(y, dx)/dx;
-    float Yl = 1 - Yr;
-    float Zr = position_in_cell(z, dx)/dx;
-    float Zl = 1 - Zr;
+        float Xr = position_in_cell(x, dx)/dx;
+        float Xl = 1 - Xr;
+        float Yr = position_in_cell(y, dx)/dx;
+        float Yl = 1 - Yr;
+        float Zr = position_in_cell(z, dx)/dx;
+        float Zl = 1 - Zr;
 
-    //TODO: redo this using a reduce
-    atomicAdd(&(d_rho[ijk_to_n(i, j, k, N_grid)]),       q*Xl*Yl*Zl);
-    atomicAdd(&(d_rho[ijk_to_n(i+1, j, k, N_grid)]),     q*Xr*Yl*Zl);
-    atomicAdd(&(d_rho[ijk_to_n(i, j+1, k, N_grid)]),     q*Xl*Yr*Zl);
-    atomicAdd(&(d_rho[ijk_to_n(i, j, k+1, N_grid)]),     q*Xl*Yl*Zr);
-    atomicAdd(&(d_rho[ijk_to_n(i+1, j+1, k, N_grid)]),   q*Xr*Yr*Zl);
-    atomicAdd(&(d_rho[ijk_to_n(i+1, j, k+1, N_grid)]),   q*Xr*Yl*Zr);
-    atomicAdd(&(d_rho[ijk_to_n(i, j+1, k+1, N_grid)]),   q*Xl*Yr*Zr);
-    atomicAdd(&(d_rho[ijk_to_n(i+1, j+1, k+1, N_grid)]), q*Xr*Yr*Zr);
+        //TODO: redo this using a reduce
+        atomicAdd(&(d_rho[ijk_to_n(i, j, k, N_grid)]),       q*Xl*Yl*Zl);
+        atomicAdd(&(d_rho[ijk_to_n(i+1, j, k, N_grid)]),     q*Xr*Yl*Zl);
+        atomicAdd(&(d_rho[ijk_to_n(i, j+1, k, N_grid)]),     q*Xl*Yr*Zl);
+        atomicAdd(&(d_rho[ijk_to_n(i, j, k+1, N_grid)]),     q*Xl*Yl*Zr);
+        atomicAdd(&(d_rho[ijk_to_n(i+1, j+1, k, N_grid)]),   q*Xr*Yr*Zl);
+        atomicAdd(&(d_rho[ijk_to_n(i+1, j, k+1, N_grid)]),   q*Xr*Yl*Zr);
+        atomicAdd(&(d_rho[ijk_to_n(i, j+1, k+1, N_grid)]),   q*Xl*Yr*Zr);
+        atomicAdd(&(d_rho[ijk_to_n(i+1, j+1, k+1, N_grid)]), q*Xr*Yr*Zr);
+    }
 }
 
 void scatter_charge(Species *s, Grid *g)
 {
     CUDA_ERROR(cudaDeviceSynchronize());
-    scatter_charge_kernel<<<s->particleBlocks, s->particleThreads>>>(s->d_particles, s->q, g->d_rho, g->N_grid, g->dx);
+    scatter_charge_kernel<<<s->particleBlocks, s->particleThreads>>>(s->d_particles,
+        s->q, g->d_rho, g->N_grid, g->dx, s->N_particles);
 }
 
 
@@ -160,22 +192,6 @@ void SpeciesPush(Species *s, Grid *g, float dt)
 {
     ParticleKernel<<<s->particleBlocks, s->particleThreads>>>(s->d_particles,
         s->q, s->m, g->d_Ex, g->d_Ey, g->d_Ez, s->N_particles, g->N_grid, g->dx, dt);
-}
-
-void init_species(Species *s, float shiftx, float shifty, float shiftz,
-        float vx, float vy, float vz,
-        int N_particles_1_axis, int N_grid, float dx){
-    s->N_particles_1_axis = N_particles_1_axis;
-    s->N_particles = N_particles_1_axis * N_particles_1_axis * N_particles_1_axis;
-    s->particles = new Particle[s->N_particles];
-
-
-    s->particleThreads = dim3(N_particles_1_axis);
-    s->particleBlocks = dim3((s->N_particles+s->particleThreads.x - 1)/s->particleThreads.x);
-
-    CUDA_ERROR(cudaMalloc((void**)&(s->d_particles), sizeof(Particle)*s->N_particles));
-    printf("initializing particles\n");
-    InitParticleArrays<<<s->particleBlocks, s->particleThreads>>>(s->d_particles, shiftx, shifty, shiftz, vx, vy, vz, s->N_particles_1_axis, s->N_particles);
 }
 
 void dump_position_data(Species *s, char* name){

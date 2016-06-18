@@ -99,6 +99,7 @@ void reset_rho(Grid *g)
 
 void init_grid(Grid *g, int N_grid){
     int N_grid_all = N_grid * N_grid * N_grid;
+    g->N_grid = N_grid;
     g->N_grid_all = N_grid_all;
     g->rho = new float[N_grid_all];
     g->Ex = new float[N_grid_all];
@@ -117,6 +118,8 @@ void init_grid(Grid *g, int N_grid){
     g->dx = (L/float(N_grid));
     g->dy = g->dx;
     g->dz = g->dx;
+
+    printf("Initializing grid\ndx: %f N_grid: %d N_grid_all: %d\n", g->dx, g->N_grid, g->N_grid_all);
 
     g->gridThreads = dim3(N_grid/2,N_grid/2,N_grid/2);
     g->gridBlocks = dim3((N_grid+g->gridThreads.x-1)/g->gridThreads.x,
@@ -180,7 +183,7 @@ void dump_density_data(Grid *g, char* name){
         fprintf(density_data, "%f %.2f %.2f %.2f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
         rho_total += g->rho[n];
     }
-    printf("rho total: %f\n", rho_total);
+    // printf("rho total: %f\n", rho_total);
 }
 
 
