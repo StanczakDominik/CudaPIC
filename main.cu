@@ -33,6 +33,7 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
 	//potential TODO: sort particles?????
     //2. clear charge density for scattering fields to particles charge
     reset_rho(g);
+    printf("%f %f\n", electrons->KE, ions->KE);
 
     //3. gather charge from new particle position to grid
     scatter_charge(electrons, g);
@@ -60,14 +61,14 @@ int main(void){
     electrons.q = -ELECTRON_CHARGE;
     electrons.m = ELECTRON_MASS;
     electrons.N = N_particles;
-    init_species(&electrons, g.dx*0.1f, g.dx*0.1f, g.dx*0.1f, 0.1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
+    init_species(&electrons, g.dx*0.1f, 0, 0, 1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
     Species ions;
     // ions.q = ELECTRON_CHARGE;
     // ions.m = PROTON_MASS;
     ions.q = -ELECTRON_CHARGE;
     ions.m = ELECTRON_MASS;
     ions.N = N_particles;
-    init_species(&ions, g.dx*0.05f, g.dx*0.05f, g.dx*0.05f, -0.1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
+    init_species(&ions, g.dx*0.05f, 0, 0, -1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
 
     char filename[50];
     sprintf(filename, "data/ions_positions_%d.dat", -1);
@@ -91,7 +92,7 @@ int main(void){
             dump_position_data(&electrons, filename);
         }
         timestep(&g, &electrons, &ions);
-        printf("Iteration %d\r", i);
+        printf("Iteration %d ", i);
     }
 
     cudaDeviceSynchronize();

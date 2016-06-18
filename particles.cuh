@@ -30,8 +30,10 @@ struct Species{
     dim3 particleThreads;
     dim3 particleBlocks;
 
+    float *d_block_v2s;
+    float *block_v2s;
+    float KE;
     // Particle total_values;
-    // float total_v2;
     // float total_vabs;
     // float T;
     // float kinetic_E;

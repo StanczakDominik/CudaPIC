@@ -33,8 +33,6 @@ __global__ void solve_poisson(float *d_kv, cufftComplex *d_F_rho,
 
         d_F_Ez[index].x = -d_kv[k]*d_F_rho[index].x*k2inverse/EPSILON_ZERO;
         d_F_Ez[index].y = -d_kv[k]*d_F_rho[index].y*k2inverse/EPSILON_ZERO;
-
-
     }
 }
 

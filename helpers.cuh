@@ -9,6 +9,7 @@
 #define ELECTRON_CHARGE 1.0f
 #define EPSILON_ZERO 1.0f
 #define L 6.28f
+#define pThreads 512
 
 void CUDA_ERROR( cudaError_t err);
 

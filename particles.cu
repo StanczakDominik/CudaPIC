@@ -46,10 +46,12 @@ void init_species(Species *s, float shiftx, float shifty, float shiftz,
     s->N_particles_1_axis = N_particles_1_axis;
     s->N_particles = N_particles_1_axis * N_particles_1_axis * N_particles_1_axis;
     s->particles = new Particle[s->N_particles];
-
-    s->particleThreads = dim3(512);
+    s->particleThreads = dim3(pThreads);
     s->particleBlocks = dim3((s->N_particles+s->particleThreads.x - 1)/s->particleThreads.x);
 
+    s->KE = 0;
+    s->block_v2s = new float[s->particleBlocks.x];
+    CUDA_ERROR(cudaMalloc((void**)&(s->d_block_v2s), sizeof(float)*s->particleBlocks.x));
     CUDA_ERROR(cudaMalloc((void**)&(s->d_particles), sizeof(Particle)*s->N_particles));
     printf("initializing particles\n");
     InitParticleArrays<<<s->particleBlocks, s->particleThreads>>>(s->d_particles, shiftx, shifty, shiftz, vx, vy, vz, s->N_particles_1_axis, s->N_particles);
@@ -156,7 +158,8 @@ void InitialVelocityStep(Species *s, Grid *g, float dt)
 }
 
 __global__ void ParticleKernel(Particle *d_p, float q, float m,
-    float *d_Ex, float *d_Ey, float *d_Ez, int N_particles, int N_grid, float dx, float dt){
+    float *d_Ex, float *d_Ey, float *d_Ez, int N_particles, int N_grid, float dx, float dt, float* d_block_v2s){
+   __shared__ float v2_array[pThreads];
    int n = blockDim.x * blockIdx.x + threadIdx.x;
    if(n<N_particles)
    {
@@ -186,14 +189,35 @@ __global__ void ParticleKernel(Particle *d_p, float q, float m,
        p->vy += dt*q/m*Ey;
        p->vz += dt*q/m*Ez;
 
-       float v2 = old_vx * p->vx + old_vy * p->vy + old_vz * p->vz;
+       v2_array[threadIdx.x] = old_vx * p->vx + old_vy * p->vy + old_vz * p->vz;
+       __syncthreads();
+
+       for (int s = pThreads / 2; s > 0; s >>= 1)
+       {
+           if (threadIdx.x < s)
+           {
+               v2_array[threadIdx.x] += v2_array[threadIdx.x + s];
+           }
+           __syncthreads();
+       }
+
+       if (threadIdx.x == 0)
+       {
+           d_block_v2s[blockIdx.x] = v2_array[0];
+       }
    }
 }
 
 void SpeciesPush(Species *s, Grid *g, float dt)
 {
+    s->KE = 0;
     ParticleKernel<<<s->particleBlocks, s->particleThreads>>>(s->d_particles,
-        s->q, s->m, g->d_Ex, g->d_Ey, g->d_Ez, s->N_particles, g->N_grid, g->dx, dt);
+        s->q, s->m, g->d_Ex, g->d_Ey, g->d_Ez, s->N_particles, g->N_grid, g->dx, dt, s->d_block_v2s);
+    CUDA_ERROR(cudaMemcpy(s->block_v2s, s->d_block_v2s, sizeof(float)*s->particleBlocks.x, cudaMemcpyDeviceToHost));
+    for (int i = 0; i<s->particleBlocks.x; i++)
+    {
+        s->KE += s->m * 0.5f * s->block_v2s[i];
+    }
 }
 
 void dump_position_data(Species *s, char* name){
