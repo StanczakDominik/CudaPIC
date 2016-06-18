@@ -28,4 +28,4 @@ run:
 	make
 	./main.out &
 	sleep 3
-	python particles_plot.py &
+	python particles_plot.py

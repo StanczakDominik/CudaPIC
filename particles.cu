@@ -1,5 +1,4 @@
 #include "particles.cuh"
-
 __device__ int position_to_grid_index(float x, float dx){
     return x/dx;
 }
@@ -20,11 +19,14 @@ __global__ void InitParticleArrays(Particle *d_p, float shiftx, float shifty,
         int i = n / (int)(N_particles_1_axis*N_particles_1_axis);
         int j = (int) (n/N_particles_1_axis) % N_particles_1_axis;
         int k = n % N_particles_1_axis;
-        p->x = L/float(N_particles_1_axis) * i + shiftx;
+        p->x = L/float(N_particles_1_axis) * i;
+        p->x += shiftx*sin(2*M_PI/L*p->x);
         p->x = p->x - floor(p->x/L)*L;
-        p->y = L/float(N_particles_1_axis) * j + shifty;
+        p->y = L/float(N_particles_1_axis) * j;
+        p->y += shifty*sin(2*M_PI/L*p->y);
         p->y = p->y - floor(p->y/L)*L;
-        p->z = L/float(N_particles_1_axis) * k + shiftz;
+        p->z = L/float(N_particles_1_axis) * k;
+        p->z += shiftz*sin(2*M_PI/L*p->z);
         p->z = p->z - floor(p->z/L)*L;
 
         p->vx = vx;

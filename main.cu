@@ -6,7 +6,7 @@
 using namespace std;
 
 #define SNAP_EVERY 1
-#define NT 10
+#define NT 1000
 #define dt 0.1f
 
 #define N_particles_1_axis 64
@@ -60,12 +60,14 @@ int main(void){
     electrons.q = -ELECTRON_CHARGE;
     electrons.m = ELECTRON_MASS;
     electrons.N = N_particles;
-    init_species(&electrons, g.dx*0.1f, g.dx*0.1f, g.dx*0.1f, 0, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
+    init_species(&electrons, g.dx*0.1f, g.dx*0.1f, g.dx*0.1f, 0.1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
     Species ions;
-    ions.q = ELECTRON_CHARGE;
-    ions.m = PROTON_MASS;
+    // ions.q = ELECTRON_CHARGE;
+    // ions.m = PROTON_MASS;
+    ions.q = -ELECTRON_CHARGE;
+    ions.m = ELECTRON_MASS;
     ions.N = N_particles;
-    init_species(&ions, g.dx*0.05f, g.dx*0.05f, g.dx*0.05f, 0, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
+    init_species(&ions, g.dx*0.05f, g.dx*0.05f, g.dx*0.05f, -0.1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
 
     char filename[50];
     sprintf(filename, "data/ions_positions_%d.dat", -1);

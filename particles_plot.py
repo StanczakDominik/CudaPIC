@@ -2,10 +2,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import animation
 
-I = range(0, 10, 1)
+I = range(0, 100, 1)
 names = ["electrons_positions_{}", "ions_positions_{}"]
 labels = ["Electrons", "Electrons"]
-colors = ["g", "b"]
+colors = ["r", "b"]
 
 fig = plt.figure(figsize=(16,12))
 
@@ -32,9 +32,9 @@ for ind, name in enumerate(names):
     ax_y.hist(y, 50, color=colors[ind], label=dataset_name, lw=0, alpha=0.5)
     ax_z.hist(z, 50, color=colors[ind], label=dataset_name, lw=0, alpha=0.5)
 
-    ax_px.plot(x, vx, "o", alpha=0.9, c=colors[ind], label=labels[ind])
-    ax_py.plot(y, vy, "o", alpha=0.9, c=colors[ind], label=labels[ind])
-    ax_pz.plot(z, vz, "o", alpha=0.9, c=colors[ind], label=labels[ind])
+    ax_px.plot(x, vx, ",", alpha=0.7, c=colors[ind], label=labels[ind])
+    ax_py.plot(y, vy, ",", alpha=0.9, c=colors[ind], label=labels[ind])
+    ax_pz.plot(z, vz, ",", alpha=0.9, c=colors[ind], label=labels[ind])
 
 ax_x.legend(loc='best')
 ax_px.legend(loc='best')
@@ -67,9 +67,20 @@ def animate(i):
         ax_y.hist(y, 50, color=colors[ind], label=labels[ind], lw=0, alpha=0.5)
         ax_z.hist(z, 50, color=colors[ind], label=labels[ind], lw=0, alpha=0.5)
 
-        ax_px.plot(x, vx, "o", alpha=0.9, c=colors[ind], label=labels[ind])
-        ax_py.plot(y, vy, "o", alpha=0.9, c=colors[ind], label=labels[ind])
-        ax_pz.plot(z, vz, "o", alpha=0.9, c=colors[ind], label=labels[ind])
+        ax_px.plot(x, vx, ",", alpha=0.9, c=colors[ind], label=labels[ind])
+        ax_py.plot(y, vy, ",", alpha=0.9, c=colors[ind], label=labels[ind])
+        ax_pz.plot(z, vz, ",", alpha=0.9, c=colors[ind], label=labels[ind])
+
+    ax_px.set_xlabel('x')
+    ax_px.set_ylabel('vx')
+    ax_py.set_xlabel('y')
+    ax_py.set_ylabel('vy')
+    ax_pz.set_xlabel('z')
+    ax_pz.set_ylabel('vz')
+
+    ax_x.set_xlabel("x")
+    ax_y.set_xlabel("y")
+    ax_z.set_xlabel("z")
     return [title, ax_x, ax_y, ax_z, ax_px, ax_py, ax_pz]
 
 anim = animation.FuncAnimation(fig, animate, I)
