@@ -6,10 +6,10 @@
 using namespace std;
 
 #define SNAP_EVERY 10
-#define NT 10000
-#define dt 0.0001f
+#define NT 1000
+#define dt 0.01f
 
-#define N_particles_1_axis 64
+#define N_particles_1_axis 128
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
 
 
@@ -60,14 +60,14 @@ int main(void){
     electrons.q = -ELECTRON_CHARGE;
     electrons.m = ELECTRON_MASS;
     electrons.N = N_particles;
-    init_species(&electrons, g.dx*0.1f, g.dx*0.01f, g.dx*0.001f, 0, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
+    init_species(&electrons, g.dx*0.06f, g.dx*0.001f, g.dx*0.001f, 1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
     Species ions;
-    ions.q = ELECTRON_CHARGE;
-    ions.m = PROTON_MASS;
-    // ions.q = -ELECTRON_CHARGE;
-    // ions.m = ELECTRON_MASS;
+    // ions.q = ELECTRON_CHARGE;
+    // ions.m = PROTON_MASS;
+    ions.q = -ELECTRON_CHARGE;
+    ions.m = ELECTRON_MASS;
     ions.N = N_particles;
-    init_species(&ions, g.dx*0.05f, g.dx*0.001f, g.dx*0.001f, 0, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
+    init_species(&ions, g.dx*0.05f, g.dx*0.001f, g.dx*0.001f, -1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
 
     char filename[50];
     sprintf(filename, "data/ions_positions_%d.dat", -1);
@@ -84,7 +84,7 @@ int main(void){
     for(int i =0; i<=NT; i++){
         if (i % SNAP_EVERY == 0)
         {
-            printf("Iteration %6d\r", i);
+            printf("Iteration %6d\n", i);
             sprintf(filename, "data/running_density_%d.dat", i);
             dump_density_data(&g, (char*)filename);
             sprintf(filename, "data/ions_positions_%d.dat", i);
