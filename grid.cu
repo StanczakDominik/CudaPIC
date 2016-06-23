@@ -119,7 +119,7 @@ void init_grid(Grid *g, int N_grid){
 
     printf("Initializing grid\ndx: %f N_grid: %d N_grid_all: %d\n", g->dx, g->N_grid, g->N_grid_all);
 
-    g->gridThreads = dim3(N_grid/2,N_grid/2,N_grid/2);
+    g->gridThreads = dim3(10,10,10);
     g->gridBlocks = dim3((N_grid+g->gridThreads.x-1)/g->gridThreads.x,
         (N_grid + g->gridThreads.y - 1)/g->gridThreads.y, (N_grid+g->gridThreads.z-1)/g->gridThreads.z);
 
@@ -155,9 +155,6 @@ void field_solver(Grid *g){
     cufftExecR2C(g->plan_forward, g->d_rho, g->d_F_rho);
     CUDA_ERROR(cudaDeviceSynchronize());
     solve_poisson<<<g->gridBlocks, g->gridThreads>>>(g->d_kv, g->d_F_rho, g->d_F_Ex, g->d_F_Ey, g->d_F_Ez, g->N_grid, g->N_grid_all);
-        //gridBlocks, gridThreads allocated
-        //g->d_kv calculated looks like properly
-        //d->F_rho
     CUDA_ERROR(cudaDeviceSynchronize());
     cufftExecC2R(g->plan_backward, g->d_F_Ex, g->d_Ex);
     cufftExecC2R(g->plan_backward, g->d_F_Ey, g->d_Ey);
@@ -175,13 +172,15 @@ void dump_density_data(Grid *g, char* name){
     CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*(g->N_grid_all), cudaMemcpyDeviceToHost));
     CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*(g->N_grid_all), cudaMemcpyDeviceToHost));
     FILE *density_data = fopen(name, "w");
-    float rho_total = 0.0f;
+    g->rho_total = 0.0f;
+    g->E_total = 0.0f;
     for (int n = 0; n < g->N_grid_all; n++)
     {
         fprintf(density_data, "%f %.2f %.2f %.2f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
-        rho_total += g->rho[n];
+        g->rho_total += g->rho[n];
+        g->E_total += g->Ex[n] * g->Ex[n] + g->Ey[n] * g->Ey[n] + g->Ez[n] * g->Ez[n];
     }
-    // printf("rho total: %f\n", rho_total);
+    g->E_total *= 0.5 * EPSILON_ZERO;
 }
 
 

@@ -7,7 +7,7 @@ using namespace std;
 
 #define SNAP_EVERY 10
 #define NT 10000
-#define dt 0.001f
+#define dt 0.0001f
 
 #define N_particles_1_axis 64
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
@@ -33,10 +33,6 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
 	//potential TODO: sort particles?????
     //2. clear charge density for scattering fields to particles charge
     reset_rho(g);
-    printf("%f %f\n", electrons->KE, ions->KE);
-    printf("%f %f\n", electrons->Px, ions->Px);
-    printf("%f %f\n", electrons->Py, ions->Py);
-    printf("%f %f\n", electrons->Pz, ions->Pz);
 
     //3. gather charge from new particle position to grid
     scatter_charge(electrons, g);
@@ -64,14 +60,14 @@ int main(void){
     electrons.q = -ELECTRON_CHARGE;
     electrons.m = ELECTRON_MASS;
     electrons.N = N_particles;
-    init_species(&electrons, g.dx*0.1f, 0, 0, 1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
+    init_species(&electrons, g.dx*0.1f, g.dx*0.01f, g.dx*0.001f, 1, 0.3, 0, N_particles_1_axis, g.N_grid, g.dx);
     Species ions;
     // ions.q = ELECTRON_CHARGE;
     // ions.m = PROTON_MASS;
     ions.q = -ELECTRON_CHARGE;
     ions.m = ELECTRON_MASS;
     ions.N = N_particles;
-    init_species(&ions, g.dx*0.05f, 0, 0, -1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
+    init_species(&ions, g.dx*0.05f, g.dx*0.001f, g.dx*0.001f, -1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
 
     char filename[50];
     sprintf(filename, "data/ions_positions_%d.dat", -1);
@@ -87,15 +83,21 @@ int main(void){
     for(int i =0; i<=NT; i++){
         if (i % SNAP_EVERY == 0)
         {
+            printf("Iteration %d\n", i);
+            printf("%f %f\n", g.rho_total, g.E_total);
             sprintf(filename, "data/running_density_%d.dat", i);
             dump_density_data(&g, (char*)filename);
             sprintf(filename, "data/ions_positions_%d.dat", i);
             dump_position_data(&ions, filename);
             sprintf(filename, "data/electrons_positions_%d.dat", i);
             dump_position_data(&electrons, filename);
+            printf("%f %f\n", electrons.KE, ions.KE);
+            printf("%f %f\n", electrons.Px, ions.Px);
+            printf("%f %f\n", electrons.Py, ions.Py);
+            printf("%f %f\n", electrons.Pz, ions.Pz);
+            printf("%f\n", g.E_total + electrons.KE + ions.KE);
         }
         timestep(&g, &electrons, &ions);
-        printf("Iteration %d ", i);
     }
 
     cudaDeviceSynchronize();

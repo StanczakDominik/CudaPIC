@@ -38,6 +38,8 @@ struct Grid{
     //the wave vector, for the field solver
     float *kv;
     float *d_kv;
+    float rho_total;
+    float E_total;
 };
 
 __global__ void solve_poisson(float *d_kv, cufftComplex *d_F_rho, cufftComplex *d_F_Ex, cufftComplex *d_F_Ey, cufftComplex *d_F_Ez, int N_grid, int N_grid_all);
