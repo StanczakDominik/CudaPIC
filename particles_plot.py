@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import animation
+import pandas as pd
 
 I = range(0, 10000, 10)
 names = ["electrons_positions_{}", "ions_positions_{}"]
@@ -24,9 +25,8 @@ Zphases = []
 
 for ind, name in enumerate(names):
     dataset_name = "data/" + name.format(0) + ".dat"
-    data = np.loadtxt(dataset_name)
-    # print(data[:10])
-    x, y, z, vx, vy, vz = data.T
+    data = pd.read_csv(dataset_name, delimiter=" ", names = ["x", "y", "z", "vx", "vy", "vz"])
+    x, y, z, vx, vy, vz = data['x'], data['y'], data['z'], data['vx'], data['vy'], data['vz']
 
     ax_x.hist(x, 50, color=colors[ind], label=dataset_name, lw=0, alpha=0.5)
     ax_y.hist(y, 50, color=colors[ind], label=dataset_name, lw=0, alpha=0.5)
@@ -60,8 +60,8 @@ def animate(i):
     for ind, name in enumerate(names):
         dataset_name = "data/" + name.format(i) + ".dat"
         print(i, dataset_name)
-        data = np.loadtxt(dataset_name)
-        x, y, z, vx, vy, vz = data.T
+        data = pd.read_csv(dataset_name, delimiter=" ", names = ["x", "y", "z", "vx", "vy", "vz"])
+        x, y, z, vx, vy, vz = data['x'], data['y'], data['z'], data['vx'], data['vy'], data['vz']
 
         ax_x.hist(x, 50, color=colors[ind], label=labels[ind], lw=0, alpha=0.5)
         ax_y.hist(y, 50, color=colors[ind], label=labels[ind], lw=0, alpha=0.5)
@@ -73,5 +73,6 @@ def animate(i):
     return [title, ax_x, ax_y, ax_z, ax_px, ax_py, ax_pz]
 
 anim = animation.FuncAnimation(fig, animate, I)
+# plt.show()
 anim.save('anim_test.mp4', fps=10, dpi=100, writer='ffmpeg', bitrate=1000, extra_args=['-pix_fmt', 'yuv420p'])
 plt.close(fig)

@@ -45,7 +45,7 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
 
 int main(void){
 
-    int N_grid = 16;
+    int N_grid = 32;
 
     cudaEvent_t startLoop, endLoop;
     cudaEventCreate(&startLoop);
@@ -60,14 +60,14 @@ int main(void){
     electrons.q = -ELECTRON_CHARGE;
     electrons.m = ELECTRON_MASS;
     electrons.N = N_particles;
-    init_species(&electrons, g.dx*0.1f, g.dx*0.01f, g.dx*0.001f, 1, 0.3, 0, N_particles_1_axis, g.N_grid, g.dx);
+    init_species(&electrons, g.dx*0.1f, g.dx*0.01f, g.dx*0.001f, 0, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
     Species ions;
-    // ions.q = ELECTRON_CHARGE;
-    // ions.m = PROTON_MASS;
-    ions.q = -ELECTRON_CHARGE;
-    ions.m = ELECTRON_MASS;
+    ions.q = ELECTRON_CHARGE;
+    ions.m = PROTON_MASS;
+    // ions.q = -ELECTRON_CHARGE;
+    // ions.m = ELECTRON_MASS;
     ions.N = N_particles;
-    init_species(&ions, g.dx*0.05f, g.dx*0.001f, g.dx*0.001f, -1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
+    init_species(&ions, g.dx*0.05f, g.dx*0.001f, g.dx*0.001f, 0, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
 
     char filename[50];
     sprintf(filename, "data/ions_positions_%d.dat", -1);
@@ -80,26 +80,28 @@ int main(void){
     printf("entering time loop\n");
     cudaEventSynchronize(startLoop);
     cudaEventRecord(startLoop);
+    FILE *energy_data = fopen("energies.dat", "w");
     for(int i =0; i<=NT; i++){
         if (i % SNAP_EVERY == 0)
         {
-            printf("Iteration %d\n", i);
-            printf("%f %f\n", g.rho_total, g.E_total);
+            printf("Iteration %6d\r", i);
             sprintf(filename, "data/running_density_%d.dat", i);
             dump_density_data(&g, (char*)filename);
             sprintf(filename, "data/ions_positions_%d.dat", i);
             dump_position_data(&ions, filename);
             sprintf(filename, "data/electrons_positions_%d.dat", i);
             dump_position_data(&electrons, filename);
-            printf("%f %f\n", electrons.KE, ions.KE);
-            printf("%f %f\n", electrons.Px, ions.Px);
-            printf("%f %f\n", electrons.Py, ions.Py);
-            printf("%f %f\n", electrons.Pz, ions.Pz);
-            printf("%f\n", g.E_total + electrons.KE + ions.KE);
+            fprintf(energy_data, "%d ", i);
+            fprintf(energy_data, "%f %f ", g.rho_total, g.E_total);
+            fprintf(energy_data, "%f %f ", electrons.KE, ions.KE);
+            fprintf(energy_data, "%f %f ", electrons.Px, ions.Px);
+            fprintf(energy_data, "%f %f ", electrons.Py, ions.Py);
+            fprintf(energy_data, "%f %f ", electrons.Pz, ions.Pz);
+            fprintf(energy_data, "%f\n", g.E_total + electrons.KE + ions.KE);
         }
         timestep(&g, &electrons, &ions);
     }
-
+    fclose(energy_data);
     cudaDeviceSynchronize();
     cudaEventSynchronize(endLoop);
     cudaEventRecord(endLoop);
