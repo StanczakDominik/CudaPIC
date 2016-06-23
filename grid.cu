@@ -227,3 +227,15 @@ void debug_field_solver_sine(Grid *g)
     cudaMemcpy(g->d_Ey, linear_field_y, sizeof(float)*g->N_grid_all, cudaMemcpyHostToDevice);
     cudaMemcpy(g->d_Ez, linear_field_z, sizeof(float)*g->N_grid_all, cudaMemcpyHostToDevice);
 }
+
+void grid_cleanup(Grid *g)
+{
+    CUDA_ERROR(cudaFree(g->d_rho));
+    CUDA_ERROR(cudaFree(g->d_Ex));
+    CUDA_ERROR(cudaFree(g->d_Ey));
+    CUDA_ERROR(cudaFree(g->d_Ez));
+    CUDA_ERROR(cudaFree(g->d_F_Ex));
+    CUDA_ERROR(cudaFree(g->d_F_Ey));
+    CUDA_ERROR(cudaFree(g->d_F_Ez));
+    CUDA_ERROR(cudaFree(g->d_F_rho));
+}

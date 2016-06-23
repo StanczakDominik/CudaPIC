@@ -5,9 +5,9 @@
 #include "particles.cuh"
 using namespace std;
 
-#define SNAP_EVERY 1
-#define NT 1000
-#define dt 0.1f
+#define SNAP_EVERY 10
+#define NT 10000
+#define dt 0.001f
 
 #define N_particles_1_axis 64
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
@@ -34,6 +34,9 @@ void timestep(Grid *g, Species *electrons,  Species *ions){
     //2. clear charge density for scattering fields to particles charge
     reset_rho(g);
     printf("%f %f\n", electrons->KE, ions->KE);
+    printf("%f %f\n", electrons->Px, ions->Px);
+    printf("%f %f\n", electrons->Py, ions->Py);
+    printf("%f %f\n", electrons->Pz, ions->Pz);
 
     //3. gather charge from new particle position to grid
     scatter_charge(electrons, g);
@@ -103,14 +106,7 @@ int main(void){
     cudaEventElapsedTime(&loopRuntimeMS, startLoop, endLoop);
 
 
-    CUDA_ERROR(cudaFree(electrons.d_particles));
-    CUDA_ERROR(cudaFree(ions.d_particles));
-    CUDA_ERROR(cudaFree(g.d_rho));
-    CUDA_ERROR(cudaFree(g.d_Ex));
-    CUDA_ERROR(cudaFree(g.d_Ey));
-    CUDA_ERROR(cudaFree(g.d_Ez));
-    CUDA_ERROR(cudaFree(g.d_F_Ex));
-    CUDA_ERROR(cudaFree(g.d_F_Ey));
-    CUDA_ERROR(cudaFree(g.d_F_Ez));
-    CUDA_ERROR(cudaFree(g.d_F_rho));
+    grid_cleanup(&g);
+    particle_cleanup(&electrons);
+    particle_cleanup(&ions);
 }

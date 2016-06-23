@@ -32,7 +32,21 @@ struct Species{
 
     float *d_block_v2s;
     float *block_v2s;
+
+    float *d_block_Px;
+    float *block_Px;
+
+    float *d_block_Py;
+    float *block_Py;
+
+    float *d_block_Pz;
+    float *block_Pz;
+
     float KE;
+    float Px;
+    float Py;
+    float Pz;
+
     // Particle total_values;
     // float total_vabs;
     // float T;
@@ -47,5 +61,6 @@ void dump_position_data(Species *s, char* name);
 void scatter_charge(Species *s, Grid*g);
 void InitialVelocityStep(Species *s, Grid *g, float dt);
 void SpeciesPush(Species *s, Grid *g, float dt);
+void particle_cleanup(Species *s);
 
 #endif

@@ -53,5 +53,6 @@ void dump_density_data(Grid *g, char* name);
 
 void debug_field_solver_uniform(Grid *g);
 void debug_field_solver_sine(Grid *g);
+void grid_cleanup(Grid *g);
 
 #endif

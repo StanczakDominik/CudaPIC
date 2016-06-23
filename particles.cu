@@ -50,8 +50,20 @@ void init_species(Species *s, float shiftx, float shifty, float shiftz,
     s->particleBlocks = dim3((s->N_particles+s->particleThreads.x - 1)/s->particleThreads.x);
 
     s->KE = 0;
+    s->Px = 0;
+    s->Py = 0;
+    s->Pz = 0;
     s->block_v2s = new float[s->particleBlocks.x];
     CUDA_ERROR(cudaMalloc((void**)&(s->d_block_v2s), sizeof(float)*s->particleBlocks.x));
+    s->block_Px = new float[s->particleBlocks.x];
+    CUDA_ERROR(cudaMalloc((void**)&(s->d_block_Px), sizeof(float)*s->particleBlocks.x));
+    s->block_Py = new float[s->particleBlocks.x];
+    CUDA_ERROR(cudaMalloc((void**)&(s->d_block_Py), sizeof(float)*s->particleBlocks.x));
+    s->block_Pz = new float[s->particleBlocks.x];
+    CUDA_ERROR(cudaMalloc((void**)&(s->d_block_Pz), sizeof(float)*s->particleBlocks.x));
+
+
+
     CUDA_ERROR(cudaMalloc((void**)&(s->d_particles), sizeof(Particle)*s->N_particles));
     printf("initializing particles\n");
     InitParticleArrays<<<s->particleBlocks, s->particleThreads>>>(s->d_particles, shiftx, shifty, shiftz, vx, vy, vz, s->N_particles_1_axis, s->N_particles);
@@ -158,8 +170,12 @@ void InitialVelocityStep(Species *s, Grid *g, float dt)
 }
 
 __global__ void ParticleKernel(Particle *d_p, float q, float m,
-    float *d_Ex, float *d_Ey, float *d_Ez, int N_particles, int N_grid, float dx, float dt, float* d_block_v2s){
+        float *d_Ex, float *d_Ey, float *d_Ez, int N_particles, int N_grid, float dx, float dt,
+        float* d_block_v2s, float* d_block_Px, float* d_block_Py, float* d_block_Pz){
    __shared__ float v2_array[pThreads];
+   __shared__ float Px_array[pThreads];
+   __shared__ float Py_array[pThreads];
+   __shared__ float Pz_array[pThreads];
    int n = blockDim.x * blockIdx.x + threadIdx.x;
    if(n<N_particles)
    {
@@ -189,14 +205,22 @@ __global__ void ParticleKernel(Particle *d_p, float q, float m,
        p->vy += dt*q/m*Ey;
        p->vz += dt*q/m*Ez;
 
+
        v2_array[threadIdx.x] = old_vx * p->vx + old_vy * p->vy + old_vz * p->vz;
+       Px_array[threadIdx.x] = old_vx * p->vx;
+       Py_array[threadIdx.x] = old_vy * p->vy;
+       Pz_array[threadIdx.x] = old_vz * p->vz;
        __syncthreads();
+
 
        for (int s = pThreads / 2; s > 0; s >>= 1)
        {
            if (threadIdx.x < s)
            {
                v2_array[threadIdx.x] += v2_array[threadIdx.x + s];
+               Px_array[threadIdx.x] += Px_array[threadIdx.x + s];
+               Py_array[threadIdx.x] += Py_array[threadIdx.x + s];
+               Pz_array[threadIdx.x] += Pz_array[threadIdx.x + s];
            }
            __syncthreads();
        }
@@ -204,6 +228,9 @@ __global__ void ParticleKernel(Particle *d_p, float q, float m,
        if (threadIdx.x == 0)
        {
            d_block_v2s[blockIdx.x] = v2_array[0];
+           d_block_Px[blockIdx.x] = Px_array[0];
+           d_block_Py[blockIdx.x] = Py_array[0];
+           d_block_Pz[blockIdx.x] = Pz_array[0];
        }
    }
 }
@@ -211,13 +238,29 @@ __global__ void ParticleKernel(Particle *d_p, float q, float m,
 void SpeciesPush(Species *s, Grid *g, float dt)
 {
     s->KE = 0;
+    s->Px = 0;
+    s->Py = 0;
+    s->Pz = 0;
     ParticleKernel<<<s->particleBlocks, s->particleThreads>>>(s->d_particles,
-        s->q, s->m, g->d_Ex, g->d_Ey, g->d_Ez, s->N_particles, g->N_grid, g->dx, dt, s->d_block_v2s);
+        s->q, s->m, g->d_Ex, g->d_Ey, g->d_Ez, s->N_particles, g->N_grid, g->dx, dt,
+        s->d_block_v2s, s->d_block_Px, s->d_block_Py, s->d_block_Pz);
+
+    //temporary slow reduce
     CUDA_ERROR(cudaMemcpy(s->block_v2s, s->d_block_v2s, sizeof(float)*s->particleBlocks.x, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(s->block_Px, s->d_block_Px, sizeof(float)*s->particleBlocks.x, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(s->block_Py, s->d_block_Py, sizeof(float)*s->particleBlocks.x, cudaMemcpyDeviceToHost));
+    CUDA_ERROR(cudaMemcpy(s->block_Pz, s->d_block_Pz, sizeof(float)*s->particleBlocks.x, cudaMemcpyDeviceToHost));
     for (int i = 0; i<s->particleBlocks.x; i++)
     {
-        s->KE += s->m * 0.5f * s->block_v2s[i];
+        s->KE += s->block_v2s[i];
+        s->Px += s->block_Px[i];
+        s->Py += s->block_Py[i];
+        s->Pz += s->block_Pz[i];
     }
+    s->KE *= s->m * 0.5f;
+    s->Px *= s->m;
+    s->Py *= s->m;
+    s->Pz *= s->m;
 }
 
 void dump_position_data(Species *s, char* name){
@@ -232,4 +275,13 @@ void dump_position_data(Species *s, char* name){
     }
     // free(s->particles);
     fclose(initial_position_data);
+}
+
+void particle_cleanup(Species *s)
+{
+    CUDA_ERROR(cudaFree(s->d_particles));
+    CUDA_ERROR(cudaFree(s->d_block_v2s));
+    CUDA_ERROR(cudaFree(s->d_block_Px));
+    CUDA_ERROR(cudaFree(s->d_block_Py));
+    CUDA_ERROR(cudaFree(s->d_block_Pz));
 }
