@@ -42,6 +42,14 @@ struct Species{
     float *d_block_Pz;
     float *block_Pz;
 
+    float *d_sum_Px;
+    float *d_sum_Py;
+    float *d_sum_Pz;
+    float *d_sum_v2s;
+
+    float *moments;
+    float *d_moments;
+
     float KE;
     float Px;
     float Py;

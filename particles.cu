@@ -60,9 +60,12 @@ void init_species(Species *s, float shiftx, float shifty, float shiftz,
     s->block_Py = new float[s->particleBlocks.x];
     CUDA_ERROR(cudaMalloc((void**)&(s->d_block_Py), sizeof(float)*s->particleBlocks.x));
     s->block_Pz = new float[s->particleBlocks.x];
-    CUDA_ERROR(cudaMalloc((void**)&(s->d_block_Pz), sizeof(float)*s->particleBlocks.x));
-
-
+    CUDA_ERROR(cudaMalloc((void**)&(s->d_sum_Px), sizeof(float)*(s->particleBlocks.x + pThreads - 1)/pThreads));
+    CUDA_ERROR(cudaMalloc((void**)&(s->d_sum_Py), sizeof(float)*(s->particleBlocks.x + pThreads - 1)/pThreads));
+    CUDA_ERROR(cudaMalloc((void**)&(s->d_sum_Pz), sizeof(float)*(s->particleBlocks.x + pThreads - 1)/pThreads));
+    CUDA_ERROR(cudaMalloc((void**)&(s->d_sum_v2s), sizeof(float)*(s->particleBlocks.x + pThreads - 1)/pThreads));
+    CUDA_ERROR(cudaMalloc((void**)&(s->d_moments), sizeof(float)*4));
+    s->moments = new float[4];
 
     CUDA_ERROR(cudaMalloc((void**)&(s->d_particles), sizeof(Particle)*s->N_particles));
     printf("initializing particles\n");
@@ -232,7 +235,27 @@ __global__ void ParticleKernel(Particle *d_p, float q, float m,
            d_block_Py[blockIdx.x] = Py_array[0];
            d_block_Pz[blockIdx.x] = Pz_array[0];
        }
+
    }
+}
+
+__global__ void reduce_moments(float *d_arr, float *d_results, int N)
+{
+    __shared__ float sh_array[pThreads];
+    int n = blockDim.x * blockIdx.x + threadIdx.x;
+    if (n < N){
+        for (int s = pThreads / 2; s > 0; s >>= 1){
+            if ( threadIdx.x < s)
+            {
+                sh_array[threadIdx.x] += d_arr[threadIdx.x + s];
+            }
+            __syncthreads();
+        }
+
+        if (threadIdx.x ==0){
+            d_results[blockIdx.x] = sh_array[0];
+        }
+    }
 }
 
 void SpeciesPush(Species *s, Grid *g, float dt)
@@ -245,22 +268,22 @@ void SpeciesPush(Species *s, Grid *g, float dt)
         s->q, s->m, g->d_Ex, g->d_Ey, g->d_Ez, s->N_particles, g->N_grid, g->dx, dt,
         s->d_block_v2s, s->d_block_Px, s->d_block_Py, s->d_block_Pz);
 
-    //temporary slow reduce
-    CUDA_ERROR(cudaMemcpy(s->block_v2s, s->d_block_v2s, sizeof(float)*s->particleBlocks.x, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(s->block_Px, s->d_block_Px, sizeof(float)*s->particleBlocks.x, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(s->block_Py, s->d_block_Py, sizeof(float)*s->particleBlocks.x, cudaMemcpyDeviceToHost));
-    CUDA_ERROR(cudaMemcpy(s->block_Pz, s->d_block_Pz, sizeof(float)*s->particleBlocks.x, cudaMemcpyDeviceToHost));
-    for (int i = 0; i<s->particleBlocks.x; i++)
-    {
-        s->KE += s->block_v2s[i];
-        s->Px += s->block_Px[i];
-        s->Py += s->block_Py[i];
-        s->Pz += s->block_Pz[i];
-    }
-    s->KE *= s->m * 0.5f;
-    s->Px *= s->m;
-    s->Py *= s->m;
-    s->Pz *= s->m;
+    CUDA_ERROR(cudaDeviceSynchronize());
+    reduce_moments<<<(s->particleBlocks.x + pThreads - 1)/pThreads, s->particleThreads>>>(s->d_block_v2s, s->d_sum_v2s, (s->N_particles + pThreads - 1)/pThreads);
+    reduce_moments<<<(s->particleBlocks.x + pThreads - 1)/pThreads, s->particleThreads>>>(s->d_block_Px, s->d_sum_Px, (s->N_particles + pThreads - 1)/pThreads);
+    reduce_moments<<<(s->particleBlocks.x + pThreads - 1)/pThreads, s->particleThreads>>>(s->d_block_Py, s->d_sum_Py, (s->N_particles + pThreads - 1)/pThreads);
+    reduce_moments<<<(s->particleBlocks.x + pThreads - 1)/pThreads, s->particleThreads>>>(s->d_block_Pz, s->d_sum_Pz, (s->N_particles + pThreads - 1)/pThreads);
+    CUDA_ERROR(cudaDeviceSynchronize());
+    reduce_moments<<<1, (s->particleBlocks.x + pThreads - 1)/pThreads>>>(s->d_sum_v2s, &(s->d_moments[0]), (s->particleBlocks.x + pThreads - 1)/pThreads);
+    reduce_moments<<<1, (s->particleBlocks.x + pThreads - 1)/pThreads>>>(s->d_sum_Px, &(s->d_moments[1]), (s->particleBlocks.x + pThreads - 1)/pThreads);
+    reduce_moments<<<1, (s->particleBlocks.x + pThreads - 1)/pThreads>>>(s->d_sum_Py, &(s->d_moments[2]), (s->particleBlocks.x + pThreads - 1)/pThreads);
+    reduce_moments<<<1, (s->particleBlocks.x + pThreads - 1)/pThreads>>>(s->d_sum_Pz, &(s->d_moments[3]), (s->particleBlocks.x + pThreads - 1)/pThreads);
+
+    CUDA_ERROR(cudaMemcpy(s->moments, s->d_moments, sizeof(float)*4, cudaMemcpyDeviceToHost));
+    s->KE = s->moments[0] * 0.5f * s->m;
+    s->Px = s->moments[1] * s->m;
+    s->Py = s->moments[2] * s->m;
+    s->Pz = s->moments[3] * s->m;
 }
 
 void dump_position_data(Species *s, char* name){
