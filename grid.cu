@@ -117,9 +117,12 @@ void init_grid(Grid *g, int N_grid){
     g->dy = g->dx;
     g->dz = g->dx;
 
+    g->sum_results = new float[4];
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_sum_results), sizeof(float)*4));
+
     printf("Initializing grid\ndx: %f N_grid: %d N_grid_all: %d\n", g->dx, g->N_grid, g->N_grid_all);
 
-    g->gridThreads = dim3(10,10,10);
+    g->gridThreads = dim3(gThreadsSingle,gThreadsSingle,gThreadsSingle);
     g->gridBlocks = dim3((N_grid+g->gridThreads.x-1)/g->gridThreads.x,
         (N_grid + g->gridThreads.y - 1)/g->gridThreads.y, (N_grid+g->gridThreads.z-1)/g->gridThreads.z);
 
@@ -146,9 +149,43 @@ void init_grid(Grid *g, int N_grid){
     CUDA_ERROR(cudaMalloc((void**)&(g->d_Ez), sizeof(float)*N_grid_all));
     CUDA_ERROR(cudaMemcpy(g->d_Ez, g->Ez, sizeof(float)*N_grid_all, cudaMemcpyHostToDevice));
 
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_Rrho), sizeof(float)*(N_grid_all+gThreadsAll-1)/gThreadsAll));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_REx), sizeof(float)*(N_grid_all+gThreadsAll-1)/gThreadsAll));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_REy), sizeof(float)*(N_grid_all+gThreadsAll-1)/gThreadsAll));
+    CUDA_ERROR(cudaMalloc((void**)&(g->d_REz), sizeof(float)*(N_grid_all+gThreadsAll-1)/gThreadsAll));
+
     cufftPlan3d(&(g->plan_forward), N_grid, N_grid, N_grid, CUFFT_R2C);
     cufftPlan3d(&(g->plan_backward), N_grid, N_grid, N_grid, CUFFT_C2R);
 }
+
+__global__ void reduce_fields(float *d_rho, float *d_Ex, float* d_Ey, float* d_Ez, float *d_Rrho, float* d_REx, float* d_REy, float* d_REz, int N)
+{
+    __shared__ float rho_array[gThreadsAll];
+    __shared__ float Ex_array[gThreadsAll];
+    __shared__ float Ey_array[gThreadsAll];
+    __shared__ float Ez_array[gThreadsAll];
+    int n = blockDim.x * blockIdx.x + threadIdx.x;
+    if (n < N){
+        for (int s = blockDim.x / 2; s > 0; s >>= 1){
+            if ( threadIdx.x < s)
+            {
+                rho_array[threadIdx.x] += d_rho[threadIdx.x + s];
+                Ex_array[threadIdx.x] += d_Ex[threadIdx.x + s] * d_Ex[threadIdx.x + s];
+                Ey_array[threadIdx.x] += d_Ey[threadIdx.x + s] * d_Ey[threadIdx.x + s];
+                Ez_array[threadIdx.x] += d_Ez[threadIdx.x + s] * d_Ez[threadIdx.x + s];
+            }
+            __syncthreads();
+        }
+
+        if (threadIdx.x ==0){
+            d_Rrho[blockIdx.x] = rho_array[0];
+            d_REx[blockIdx.x] = Ex_array[0];
+            d_REy[blockIdx.x] = Ey_array[0];
+            d_REz[blockIdx.x] = Ez_array[0];
+        }
+    }
+}
+
 
 void field_solver(Grid *g){
     CUDA_ERROR(cudaDeviceSynchronize());
@@ -163,6 +200,15 @@ void field_solver(Grid *g){
 
     scale_down_after_fft<<<g->gridBlocks, g->gridThreads>>>(g->d_Ex, g->d_Ey, g->d_Ez, g->N_grid, g->N_grid_all);
     CUDA_ERROR(cudaDeviceSynchronize());
+
+    reduce_fields<<<(g->N_grid_all + gThreadsAll - 1)/gThreadsAll, gThreadsAll>>>(g->d_rho, g->d_Ex, g->d_Ey, g->d_Ez, g->d_Rrho, g->d_REx, g->d_REy, g->d_REz, g->N_grid_all);
+    CUDA_ERROR(cudaDeviceSynchronize());
+    reduce_fields<<<1, (g->N_grid_all + gThreadsAll - 1)/gThreadsAll>>>(g->d_Rrho, g->d_REx, g->d_REy, g->d_REz, &(g->d_sum_results[0]), &(g->d_sum_results[1]), &(g->d_sum_results[2]), &(g->d_sum_results[3]), (g->N_grid_all + gThreadsAll - 1)/gThreadsAll);
+    CUDA_ERROR(cudaDeviceSynchronize());
+    CUDA_ERROR(cudaMemcpy(g->sum_results, g->d_sum_results, sizeof(float)*4, cudaMemcpyDeviceToHost));
+    // printf("%f %f %f %f\n", s->moments[0], s->moments[1], s->moments[2], s->moments[3]);
+    g->rho_total = g->sum_results[0];
+    g->E_total = g->sum_results[1] + g->sum_results[2] + g->sum_results[3];
 }
 
 
@@ -172,15 +218,15 @@ void dump_density_data(Grid *g, char* name){
     CUDA_ERROR(cudaMemcpy(g->Ey, g->d_Ey, sizeof(float)*(g->N_grid_all), cudaMemcpyDeviceToHost));
     CUDA_ERROR(cudaMemcpy(g->Ez, g->d_Ez, sizeof(float)*(g->N_grid_all), cudaMemcpyDeviceToHost));
     FILE *density_data = fopen(name, "w");
-    g->rho_total = 0.0f;
-    g->E_total = 0.0f;
+    // g->rho_total = 0.0f;
+    // g->E_total = 0.0f;
     for (int n = 0; n < g->N_grid_all; n++)
     {
         fprintf(density_data, "%f %.2f %.2f %.2f\n", g->rho[n], g->Ex[n], g->Ey[n], g->Ez[n]);
-        g->rho_total += g->rho[n];
-        g->E_total += g->Ex[n] * g->Ex[n] + g->Ey[n] * g->Ey[n] + g->Ez[n] * g->Ez[n];
+        // g->rho_total += g->rho[n];
+        // g->E_total += g->Ex[n] * g->Ex[n] + g->Ey[n] * g->Ey[n] + g->Ez[n] * g->Ez[n];
     }
-    g->E_total *= 0.5 * EPSILON_ZERO;
+    // g->E_total *= 0.5 * EPSILON_ZERO;
 }
 
 

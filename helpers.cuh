@@ -10,7 +10,8 @@
 #define EPSILON_ZERO 1.0f
 #define L 1.0f
 #define pThreads 512
-
+#define gThreadsSingle 10
+#define gThreadsAll 1000
 void CUDA_ERROR( cudaError_t err);
 
 #endif

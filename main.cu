@@ -5,9 +5,9 @@
 #include "particles.cuh"
 using namespace std;
 
-#define SNAP_EVERY 10
+#define SNAP_EVERY 100
 #define NT 1000
-#define dt 0.01f
+#define dt 0.001f
 
 #define N_particles_1_axis 128
 #define N_particles  (N_particles_1_axis*N_particles_1_axis*N_particles_1_axis)
@@ -60,14 +60,14 @@ int main(void){
     electrons.q = -ELECTRON_CHARGE;
     electrons.m = ELECTRON_MASS;
     electrons.N = N_particles;
-    init_species(&electrons, g.dx*0.06f, g.dx*0.001f, g.dx*0.001f, 1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
+    init_species(&electrons, g.dx*0.06f, g.dx*0.001f, g.dx*0.001f, 0, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
     Species ions;
     // ions.q = ELECTRON_CHARGE;
     // ions.m = PROTON_MASS;
     ions.q = -ELECTRON_CHARGE;
     ions.m = ELECTRON_MASS;
     ions.N = N_particles;
-    init_species(&ions, g.dx*0.05f, g.dx*0.001f, g.dx*0.001f, -1, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
+    init_species(&ions, g.dx*0.05f, g.dx*0.001f, g.dx*0.001f, 0, 0, 0, N_particles_1_axis, g.N_grid, g.dx);
 
     char filename[50];
     sprintf(filename, "data/ions_positions_%d.dat", -1);

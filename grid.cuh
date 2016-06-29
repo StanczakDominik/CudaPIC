@@ -15,6 +15,15 @@ struct Grid{
     float *d_Ey;
     float *d_Ez;
 
+    float *d_Rrho;
+    float *d_REx;
+    float *d_REy;
+    float *d_REz;
+
+    float *sum_results;
+    float *d_sum_results;
+
+
     float dx;
     float dy;
     float dz;

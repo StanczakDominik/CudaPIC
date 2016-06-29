@@ -83,6 +83,7 @@ void init_species(Species *s, float shiftx, float shifty, float shiftz,
 }
 
 __global__ void scatter_charge_kernel(Particle *d_P, float q, float* d_rho, int N_grid, float dx, int N_particles){
+    // __shared__ float local_rho[32*32*32];
     int n = blockIdx.x*blockDim.x + threadIdx.x;
 
     if (n < N_particles){
@@ -246,7 +247,7 @@ __global__ void reduce_moments(float *d_arr, float *d_results, int N)
     int n = blockDim.x * blockIdx.x + threadIdx.x;
     // sh_array[threadIdx.x] = 0;
     if (n < N){
-        for (int s = pThreads / 2; s > 0; s >>= 1){
+        for (int s = blockDim.x / 2; s > 0; s >>= 1){
             if ( threadIdx.x < s)
             {
                 sh_array[threadIdx.x] += d_arr[threadIdx.x + s];
